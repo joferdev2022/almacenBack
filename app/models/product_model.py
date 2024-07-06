@@ -4,9 +4,9 @@ from bson import ObjectId
 from datetime import datetime
 
 class productModel(BaseModel):
-    id: Optional[str] = Field(alias="_id")
+    id: Optional[str] = Field(alias="_id") 
     nombre: str
-    descripcion: str
+    descripcion: Optional[str]=None
     categoria: str
     precioCompra: float
     precioVenta: float
@@ -14,7 +14,7 @@ class productModel(BaseModel):
     unidadDeMedida: str
     # ubicacionEnAlmacen: str
     proveedorId: str
-    fechaDeCaducidad: Optional[datetime]
+    fechaDeCaducidad: Optional[datetime]=None
     # codigoDeBarras: str
     fechaDeCreacion: Optional[datetime] = Field(default_factory=datetime.now)
     # fechaDeActualizacion: Optional[datetime] = Field(default_factory=datetime.now)
@@ -36,7 +36,7 @@ class productModel(BaseModel):
                 "unidadDeMedida": "unidad",
                 # "ubicacionEnAlmacen": "A1-B2",
                 "proveedorId": "60c72b2f9b1e8b4d5a7b9c9e",
-                # "fechaDeCaducidad": "2023-12-31T00:00:00Z",
+                # "fechaDeCaducidad": "",
                 # "codigoDeBarras": "1234567890123"
             }
         }
