@@ -25,6 +25,19 @@ async def add_product(product_data: dict) -> dict:
     
     return product_helper(new_product)
 
+async def update_product_by_id(producto_id: str, new_data: dict):
+    if "_id" in new_data:
+        del new_data["_id"]
+    producto = productsDb.find_one({"_id": ObjectId(producto_id)})
+    print("esta imprimiendo el product")
+    print(producto)
+    if producto:
+        productsDb.update_one(
+            {"_id": ObjectId(producto_id)}, {"$set": new_data}
+        )
+        return True
+    return False
+
 async def delete_product_by_id(product_id: str):
     filter = {"_id": ObjectId(product_id)}
     

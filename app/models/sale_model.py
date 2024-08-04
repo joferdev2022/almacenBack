@@ -11,7 +11,7 @@ class OrderItemModel(BaseModel):
     productName: str
 
 class saleModel(BaseModel):
-    id: Optional[str] = Field(alias="_id")
+    id: Optional[str] = Field(None, alias="_id")
     nombreCliente: str
     fechaVenta: datetime
     productos: List[OrderItemModel]
@@ -20,6 +20,8 @@ class saleModel(BaseModel):
     
     
     class Config:
+        allow_population_by_field_name = True
+        arbitrary_types_allowed = True
         json_encoders = {
             ObjectId: str,
             datetime: lambda dt: dt.isoformat()

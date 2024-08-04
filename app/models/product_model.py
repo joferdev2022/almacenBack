@@ -4,7 +4,7 @@ from bson import ObjectId
 from datetime import datetime
 
 class productModel(BaseModel):
-    id: Optional[str] = Field(alias="_id") 
+    id: Optional[str] = Field(None, alias="_id")
     nombre: str
     descripcion: Optional[str]=None
     categoria: str
@@ -13,7 +13,7 @@ class productModel(BaseModel):
     cantidadEnStock: int
     unidadDeMedida: str
     # ubicacionEnAlmacen: str
-    proveedorId: str
+    proveedorId: Optional[str]=None 
     fechaDeCaducidad: Optional[datetime]=None
     # codigoDeBarras: str
     fechaDeCreacion: Optional[datetime] = Field(default_factory=datetime.now)
@@ -21,9 +21,13 @@ class productModel(BaseModel):
     
     
     class Config:
+        allow_population_by_field_name = True
+        arbitrary_types_allowed = True
         json_encoders = {
+            
             ObjectId: str,
             datetime: lambda dt: dt.isoformat()
+            
         }
         schema_extra = {
             "example": {
