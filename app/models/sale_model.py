@@ -13,7 +13,7 @@ class OrderItemModel(BaseModel):
 class saleModel(BaseModel):
     id: Optional[str] = Field(None, alias="_id")
     nombreCliente: str
-    fechaVenta: datetime
+    fechaVenta: Optional[datetime] = None
     productos: List[OrderItemModel]
     precioTotal: float
     estado: str = "pendiente"
@@ -22,6 +22,7 @@ class saleModel(BaseModel):
     class Config:
         allow_population_by_field_name = True
         arbitrary_types_allowed = True
+        orm_mode = True
         json_encoders = {
             ObjectId: str,
             datetime: lambda dt: dt.isoformat()

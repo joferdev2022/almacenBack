@@ -1,7 +1,8 @@
 from bson.objectid import ObjectId
 from fastapi import HTTPException
+from datetime import datetime
 
-from app.db.mongo import salesDb
+from app.db.mongo import salesDb, productsDb
 from ..utils.helpers import sale_helper
 
 
@@ -21,8 +22,25 @@ async def retrieve_sales(page: int, xpage: int):
 
 async def add_sale(sale_data: dict) -> dict:
     sale_data["_id"] = ObjectId()
+    
+    sale_data["fechaVenta"] = datetime.now()
+    print(sale_data["fechaVenta"])
+    
     sale =  salesDb.insert_one(sale_data)
     new_sale =  salesDb.find_one({"_id": sale.inserted_id})
+    
+    
+    
+    for item in sale_data["productos"]:
+        producto_id = item["productoId"]
+        cantidad_vendida = item["cantidad"]
+        producto = productsDb.find_one({"_id": ObjectId(producto_id)})
+        if producto:
+            nuevo_stock = producto["cantidadEnStock"] - cantidad_vendida
+            productsDb.update_one(
+                {"_id": ObjectId(producto_id)},
+                {"$set": {"cantidadEnStock": nuevo_stock}}
+            )
     
     return sale_helper(new_sale)
 
