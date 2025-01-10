@@ -18,7 +18,7 @@ class productModel(BaseModel):
     # codigoDeBarras: str
     fechaDeCreacion: Optional[datetime] = Field(default_factory=datetime.now)
     # fechaDeActualizacion: Optional[datetime] = Field(default_factory=datetime.now)
-    
+    local:0
     
     class Config:
         allow_population_by_field_name = True
@@ -40,6 +40,7 @@ class productModel(BaseModel):
                 "unidadDeMedida": "unidad",
                 # "ubicacionEnAlmacen": "A1-B2",
                 "proveedorId": "60c72b2f9b1e8b4d5a7b9c9e",
+                "local":0,
                 # "fechaDeCaducidad": "",
                 # "codigoDeBarras": "1234567890123"
             }

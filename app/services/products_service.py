@@ -5,15 +5,19 @@ from app.db.mongo import productsDb
 from ..utils.helpers import product_helper
 
 
-async def retrieve_products(page: int, xpage: int):
+async def retrieve_products(page: int, xpage: int, local:int):
+    
+    # productsDb.update_many( {}, { "$set": { "local": 1 } } )
+    
     products = []
-    totalProducts = productsDb.count_documents({})
+    totalProducts = productsDb.count_documents({"local": local})
     
     if page < 1 or xpage < 1 or (page - 1) * xpage >= totalProducts:
-        raise HTTPException(status_code=400, detail="Parámetros de paginación inválidos.")
+        raise HTTPException(status_code=400, 
+                            detail="Parámetros de paginación inválidos.")
     skipProducts = (page - 1) * xpage
     
-    for product in productsDb.find().skip(skipProducts).limit(xpage):
+    for product in productsDb.find({"local": local}).skip(skipProducts).limit(xpage):
         product["id"] = str(product["_id"])
         products.append(product_helper(product))
     return {"total": totalProducts, "products": products, "page": page, "xpage": xpage}

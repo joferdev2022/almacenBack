@@ -26,6 +26,7 @@ try:
     # Items = db["usuarios"]
     productsDb = db["products"]
     salesDb = db["sales"]
+    authDb = db["auth"]
     # categories = db["categories"]
     
 except Exception as e:

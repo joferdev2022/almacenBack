@@ -6,15 +6,15 @@ from app.db.mongo import salesDb, productsDb
 from ..utils.helpers import sale_helper
 
 
-async def retrieve_sales(page: int, xpage: int):
+async def retrieve_sales(page: int, xpage: int, local:int):
     sales = []
-    totalSales = salesDb.count_documents({})
+    totalSales = salesDb.count_documents({"local": local})
     
     if page < 1 or xpage < 1 or (page - 1) * xpage >= totalSales:
         raise HTTPException(status_code=400, detail="Parámetros de paginación inválidos.")
     skipSales = (page - 1) * xpage
     
-    for sale in salesDb.find().skip(skipSales).limit(xpage):
+    for sale in salesDb.find({"local": local}).skip(skipSales).limit(xpage):
         sale["id"] = str(sale["_id"])
         sales.append(sale_helper(sale))
     return {"total": totalSales, "sales": sales, "page": page, "xpage": xpage}
@@ -25,6 +25,7 @@ async def add_sale(sale_data: dict) -> dict:
     
     sale_data["fechaVenta"] = datetime.now()
     print(sale_data["fechaVenta"])
+    print(sale_data)
     
     sale =  salesDb.insert_one(sale_data)
     new_sale =  salesDb.find_one({"_id": sale.inserted_id})

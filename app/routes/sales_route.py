@@ -15,8 +15,8 @@ router = APIRouter()
 
 
 @router.get("/sales", tags=["sales"])
-async def get_sales(page: int = 1, xpage: int = 10):
-    sales_list = await retrieve_sales(page, xpage)
+async def get_sales(page: int = 1, xpage: int = 10, local: int = 1):
+    sales_list = await retrieve_sales(page, xpage, local)
     
     # print(sales_list)
     return ResponseSaleModel(sales_list, "Lista de ventas")

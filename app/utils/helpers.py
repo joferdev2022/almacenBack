@@ -12,6 +12,7 @@ def product_helper(products) -> dict:
         "fechaDeCaducidad": products["fechaDeCaducidad"],
         "fechaDeCreacion": products["fechaDeCreacion"],
         # "state": promotions["state"],
+        "local": products["local"],
     }
     
 def sale_helper(sales) -> dict:
@@ -21,7 +22,8 @@ def sale_helper(sales) -> dict:
         "fechaVenta": sales["fechaVenta"],
         "productos": sales["productos"],
         "precioTotal": sales["precioTotal"],
-        "estado": sales["estado"]
+        "estado": sales["estado"],
+        "local": sales["local"],
     }
     
     

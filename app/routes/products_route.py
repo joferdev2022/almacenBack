@@ -13,8 +13,11 @@ router = APIRouter()
 
 
 @router.get("/products", tags=["products"])
-async def get_products(page: int = 1, xpage: int = 10):
-    products_list = await retrieve_products(page, xpage)
+async def get_products(page: int = 1, xpage: int = 10, local: int = 1):
+    
+    
+    
+    products_list = await retrieve_products(page, xpage, local)
     
     # print(products_list)
     return ResponseProductModel(products_list, "Lista de productos")

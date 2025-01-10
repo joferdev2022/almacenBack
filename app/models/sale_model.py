@@ -17,6 +17,7 @@ class saleModel(BaseModel):
     productos: List[OrderItemModel]
     precioTotal: float
     estado: str = "pendiente"
+    local:0
     
     
     class Config:
@@ -47,6 +48,7 @@ class saleModel(BaseModel):
                 ],
                 "precioTotal": 3300.00,
                 "estado": "pendiente",
+                "local":0
             }
         }
         
