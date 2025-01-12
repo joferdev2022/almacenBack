@@ -11,7 +11,7 @@ router = APIRouter()
 
 
 @router.get("/dashboard/", tags=["dashboard"])
-async def get_dashboard(fecha_inicio: Optional[datetime] = Query(None), fecha_fin:  Optional[datetime] = Query(None)):
+async def get_dashboard(fecha_inicio: Optional[datetime] = Query(None), fecha_fin:  Optional[datetime] = Query(None), local: int = Query(1)):
     if fecha_inicio and fecha_fin:
         filtro_fecha = {
             "fechaVenta": {
@@ -29,7 +29,7 @@ async def get_dashboard(fecha_inicio: Optional[datetime] = Query(None), fecha_fi
             }
         }
     
-    dashboard_data = await retrieve_dashboard_data(filtro_fecha)
+    dashboard_data = await retrieve_dashboard_data(filtro_fecha, local)
     
     # print(dashboard_data)
     fecha_fin_impresa = datetime.now()

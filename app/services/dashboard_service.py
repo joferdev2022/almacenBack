@@ -7,18 +7,19 @@ from app.db.mongo import salesDb, productsDb
 from ..utils.helpers import sale_helper
 
 
-async def retrieve_dashboard_data(filtro_fecha):
-    topProducts = await top_products()
-    lowProducts = await low_stock_products()
+async def retrieve_dashboard_data(filtro_fecha, local):
+    topProducts = await top_products(local)
+    lowProducts = await low_stock_products(local)
     # totalSales = salesDb.count_documents({})
-    totalproducts = productsDb.count_documents({})
+    totalproducts = productsDb.count_documents({"local": local})
     
     # AmountSales = 0
     
     # prueba = await top_products()
     
     pipeline = [
-        {"$match": filtro_fecha},
+        
+        {"$match": {"$and": [filtro_fecha, {"local": local}]}},
         {
             "$group": {
                 "_id": None,
@@ -37,8 +38,9 @@ async def retrieve_dashboard_data(filtro_fecha):
 
 
 
-async def top_products():
+async def top_products(local: int):
     pipeline = [
+        {"$match": {"local": local}},
         {"$unwind": "$productos"},
         {
             "$group": {
@@ -62,8 +64,9 @@ async def top_products():
     # print(productos)
     return productosTop
 
-async def low_stock_products():
+async def low_stock_products(local: int):
     pipeline = [
+        {"$match": {"local": local}},
         {"$sort": {"cantidadEnStock": 1}},
         {"$limit": 10},
         {
