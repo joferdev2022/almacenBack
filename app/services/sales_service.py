@@ -74,6 +74,20 @@ async def update_sale_by_id(sale_id: str, new_data: dict):
     return False
 
 async def delete_sale_by_id(sale_id: str):
+    sale = salesDb.find_one({"_id": ObjectId(sale_id)})
+    if not sale:
+        return False
+    
+    for item in sale["productos"]:
+        producto_id = item["productoId"]
+        cantidad_vendida = item["cantidad"]
+        producto = productsDb.find_one({"_id": ObjectId(producto_id)})
+        if producto:
+            nuevo_stock = producto["cantidadEnStock"] + cantidad_vendida
+            productsDb.update_one(
+                {"_id": ObjectId(producto_id)},
+                {"$set": {"cantidadEnStock": nuevo_stock}}
+            )
     filter = {"_id": ObjectId(sale_id)}
     
     result =  salesDb.delete_one(filter)
