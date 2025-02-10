@@ -22,5 +22,5 @@ async def login(data: OAuth2PasswordRequestForm = Depends()):
     access_token = create_access_token(
         data={"sub": user.username, "local":user.local}, expires_delta=access_token_expires
     )
-    return {"access_token": access_token, "user": user.username, "local": user.local, "token_type": "bearer"}
+    return {"access_token": access_token, "user": user.username, "local": user.local, "permissions":user.permissions, "token_type": "bearer"}
         

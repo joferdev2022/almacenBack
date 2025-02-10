@@ -7,6 +7,7 @@ class UserModel(BaseModel):
     username: str
     password: str
     local: int
+    permissions: int
 
     class Config:
         allow_population_by_field_name = True
