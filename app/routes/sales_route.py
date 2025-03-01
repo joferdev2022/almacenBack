@@ -4,7 +4,7 @@ from bson import ObjectId
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
-from app.services.sales_service import retrieve_sales, add_sale, delete_sale_by_id, update_sale_by_id, update_state_by_id, get_sales_with_credit_state
+from app.services.sales_service import retrieve_sales, add_sale, delete_sale_by_id, update_sale_by_id, update_state_by_id, update_payment_by_id, get_sales_with_credit_state
 from app.models.sale_model import saleModel, ResponseSaleModel, ErrorResponseModel
 
 # from app.services.products_service import retrieve_products, add_product, delete_product_by_id, update_product_by_id
@@ -56,6 +56,20 @@ async def update_sale(id: str, sale_data: saleModel):
 async def update_state_sale(id: str, state: str):
     # sale_update = {"estado": state}
     result = await update_state_by_id(id, state)
+    
+    if result:
+        return ResponseSaleModel("Venta ID: {} actualizado".format(id), "Venta actualizada de forma correcta")
+        
+    return ErrorResponseModel(
+        "Ocurrió un error",
+        404,
+        "Hubo una falla actualizando los datos de la venta",
+    )
+    
+@router.put("/sales/payment/{id}", tags=["sales"])
+async def update_state_sale(id: str, payment: float):
+    # sale_update = {"estado": state}
+    result = await update_payment_by_id(id, payment)
     
     if result:
         return ResponseSaleModel("Venta ID: {} actualizado".format(id), "Venta actualizada de forma correcta")

@@ -109,3 +109,10 @@ async def update_state_by_id(sale_id: str, new_state: str):
         return True
     return False
 
+async def update_payment_by_id(sale_id: str, new_payment: float):
+    filter = {"_id": ObjectId(sale_id)}
+    result =  salesDb.update_one(filter, {"$set": {"precioTotal": new_payment}})
+    if result.modified_count == 1:
+        return True
+    return False
+

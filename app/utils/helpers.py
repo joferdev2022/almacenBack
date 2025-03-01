@@ -21,7 +21,7 @@ def sale_helper(sales) -> dict:
         "nombreCliente": sales["nombreCliente"],
         "fechaVenta": sales["fechaVenta"],
         "productos": sales["productos"],
-        "precioTotal": sales["precioTotal"],
+        "precioTotal": float(sales["precioTotal"]),
         "estado": sales["estado"],
         "local": sales["local"],
     }
