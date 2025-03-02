@@ -16,6 +16,7 @@ class saleModel(BaseModel):
     fechaVenta: Optional[datetime] = None
     productos: List[OrderItemModel]
     precioTotal: float
+    precioTotalOriginal: Optional[float] = None
     estado: str = "pendiente"
     local:0
     
@@ -47,6 +48,7 @@ class saleModel(BaseModel):
                     }
                 ],
                 "precioTotal": 3300.00,
+                "precioTotalOriginal": 3300.00,
                 "estado": "pendiente",
                 "local":0
             }

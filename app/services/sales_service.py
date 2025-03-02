@@ -16,6 +16,7 @@ async def retrieve_sales(page: int, xpage: int, local:int):
     
     for sale in salesDb.find({"local": local}).skip(skipSales).limit(xpage):
         sale["id"] = str(sale["_id"])
+        sale["precioTotalOriginal"] = sale.get("precioTotalOriginal", sale["precioTotal"])
         sales.append(sale_helper(sale))
     return {"total": totalSales, "sales": sales, "page": page, "xpage": xpage}
 
@@ -32,6 +33,7 @@ async def get_sales_with_credit_state(page: int, xpage: int, local: int):
         
         for sale in salesDb.find({"local": local, "estado": "credito"}).skip(skipSales).limit(xpage):
             sale["id"] = str(sale["_id"])
+            sale["precioTotalOriginal"] = sale.get("precioTotalOriginal", sale["precioTotal"])
             sales.append(sale_helper(sale))
         return {"total": totalSales, "sales": sales, "page": page, "xpage": xpage}
 
@@ -39,6 +41,8 @@ async def add_sale(sale_data: dict) -> dict:
     sale_data["_id"] = ObjectId()
     
     sale_data["fechaVenta"] = datetime.now()
+    
+    sale_data["precioTotalOriginal"] = sale_data["precioTotal"]
     print(sale_data["fechaVenta"])
     print(sale_data)
     
@@ -99,6 +103,7 @@ async def delete_sale_by_id(sale_id: str):
 
 async def update_state_by_id(sale_id: str, new_state: str):
     filter = {"_id": ObjectId(sale_id)}
+    
     # sale = salesDb.find_one(filter)
     # if sale:
     #     new_state = not sale.get("estado", False)
@@ -111,8 +116,26 @@ async def update_state_by_id(sale_id: str, new_state: str):
 
 async def update_payment_by_id(sale_id: str, new_payment: float):
     filter = {"_id": ObjectId(sale_id)}
-    result =  salesDb.update_one(filter, {"$set": {"precioTotal": new_payment}})
+    
+    sale = salesDb.find_one(filter)
+    
+    if not sale:
+        return False
+    
+    if "precioTotalOriginal" not in sale:
+        original_payment = sale["precioTotal"]
+    else:
+        original_payment = sale["precioTotalOriginal"]
+    
+    update_data = {
+        "precioTotal": new_payment,
+        "precioTotalOriginal": original_payment
+    }
+    
+    result =  salesDb.update_one(filter, {"$set": update_data})
     if result.modified_count == 1:
+        updated_sale = salesDb.find_one(filter)
+        print(updated_sale)
         return True
     return False
 
