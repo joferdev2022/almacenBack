@@ -1,6 +1,6 @@
 from bson.objectid import ObjectId
 from fastapi import HTTPException
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from app.db.mongo import salesDb, productsDb
 from ..utils.helpers import sale_helper
@@ -38,13 +38,15 @@ async def get_sales_with_credit_state(page: int, xpage: int, local: int):
         return {"total": totalSales, "sales": sales, "page": page, "xpage": xpage}
 
 async def add_sale(sale_data: dict) -> dict:
+    
+    print(sale_data)
     sale_data["_id"] = ObjectId()
     
     sale_data["fechaVenta"] = datetime.now()
     
     sale_data["precioTotalOriginal"] = sale_data["precioTotal"]
-    print(sale_data["fechaVenta"])
-    print(sale_data)
+    # print(sale_data["fechaVenta"])
+    # print(sale_data)
     
     sale =  salesDb.insert_one(sale_data)
     new_sale =  salesDb.find_one({"_id": sale.inserted_id})
@@ -52,6 +54,7 @@ async def add_sale(sale_data: dict) -> dict:
     
     
     for item in sale_data["productos"]:
+        # print(item)
         producto_id = item["productoId"]
         cantidad_vendida = item["cantidad"]
         producto = productsDb.find_one({"_id": ObjectId(producto_id)})
@@ -139,3 +142,33 @@ async def update_payment_by_id(sale_id: str, new_payment: float):
         return True
     return False
 
+async def get_daily_Sales_summary(local: int):
+    today = datetime.now()
+    start_day = datetime(today.year, today.month, today.day)
+    end_day = start_day + timedelta(days=1)
+
+    sales_cursor = salesDb.find({
+        "local": local,
+        "fechaVenta": {"$gte": start_day, "$lt": end_day}
+    })
+    
+    total_ventas = 0
+    ganancia_neta = 0
+    numero_ventas = 0
+    
+    for sale in sales_cursor:
+        total_ventas += sale.get("precioTotal", 0)
+        # Suponiendo que cada producto tiene 'precioCompra' y 'cantidad'
+        for item in sale.get("productos", []):
+            print(item)
+            precio_venta = item.get("precioUnitario", 0)
+            precio_compra = item.get("precioBuy", 0)
+            cantidad = item.get("cantidad", 0)
+            ganancia_neta += (precio_venta - precio_compra) * cantidad
+        numero_ventas += 1
+    
+    return {
+        "ganancia_neta": ganancia_neta,
+        "ventas_totales": total_ventas,
+        "numero_ventas": numero_ventas
+    }

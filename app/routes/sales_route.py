@@ -4,7 +4,7 @@ from bson import ObjectId
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
-from app.services.sales_service import retrieve_sales, add_sale, delete_sale_by_id, update_sale_by_id, update_state_by_id, update_payment_by_id, get_sales_with_credit_state
+from app.services.sales_service import retrieve_sales, add_sale, delete_sale_by_id, update_sale_by_id, update_state_by_id, update_payment_by_id, get_sales_with_credit_state, get_daily_Sales_summary
 from app.models.sale_model import saleModel, ResponseSaleModel, ErrorResponseModel
 
 # from app.services.products_service import retrieve_products, add_product, delete_product_by_id, update_product_by_id
@@ -28,12 +28,18 @@ async def get_sales_with_credits(page: int = 1, xpage: int = 10, local: int = 1)
     # print(sales_list)
     return ResponseSaleModel(sales_list, "Lista de ventas a credito")
 
+
+@router.get("/sales/summary/daily", tags=["sales"])
+async def daily_sales_summary(local: int = 1):
+    summary = await get_daily_Sales_summary(local)
+    return summary
+
 @router.post("/sales", tags=["sales"])
 async def save_sale(sale_data: saleModel):
     
     new_sale = jsonable_encoder(sale_data)
     sale_bd = await add_sale(new_sale)
-    print(sale_bd)
+    # print(sale_bd)
     return "ok"
     # return ResponseCustomerModel("Cliente creado de forma correcta")
     

@@ -8,6 +8,7 @@ class OrderItemModel(BaseModel):
     productoId: str
     cantidad: int
     precioUnitario: float
+    precioBuy: float
     productName: str
 
 class saleModel(BaseModel):
@@ -38,13 +39,16 @@ class saleModel(BaseModel):
                         "productoId": "60c72b2f9b1e8b4d5a7b9c9d",
                         "productName": "monitor 4k samsung",
                         "cantidad": 2,
-                        "precioUnitario": 1500.00
+                        "precioUnitario": 1500.00,
+                        "precioBuy": 1200.00
+                        
                     },
                     {
                         "productoId": "60c72b2f9b1e8b4d5a7b9c9e",
                         "productName": "monitor 4k samsung",
                         "cantidad": 1,
-                        "precioUnitario": 300.00
+                        "precioUnitario": 300.00,
+                        "precioBuy": 250.00
                     }
                 ],
                 "precioTotal": 3300.00,
