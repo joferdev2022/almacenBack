@@ -1,6 +1,6 @@
 from bson.objectid import ObjectId
 from fastapi import HTTPException
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from app.db.mongo import salesDb, productsDb
 from ..utils.helpers import sale_helper
@@ -44,7 +44,7 @@ async def add_sale(sale_data: dict) -> dict:
     
     sale_data["_id"] = ObjectId()
     
-    sale_data["fechaVenta"] = datetime.now()
+    sale_data["fechaVenta"] = datetime.now(timezone.utc)
     
     sale_data["precioTotalOriginal"] = sale_data["precioTotal"]
     # print(sale_data["fechaVenta"])
@@ -145,7 +145,7 @@ async def update_payment_by_id(sale_id: str, new_payment: float):
     return False
 
 async def get_daily_Sales_summary(local: int):
-    today = datetime.now()
+    today = datetime.now(timezone.utc)
     start_day = datetime(today.year, today.month, today.day)
     end_day = start_day + timedelta(days=1)
 
