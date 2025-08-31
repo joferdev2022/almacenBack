@@ -24,6 +24,7 @@ def sale_helper(sales) -> dict:
     
     return {
         "id": str(sales["_id"]),
+        "nombreVendedor": sales["nombreVendedor"] if sales.get("nombreVendedor") not in [None, ""] else "Desconocido",
         "nombreCliente": sales["nombreCliente"],
         "fechaVenta": sales["fechaVenta"],
         "productos": sales["productos"],

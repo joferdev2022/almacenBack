@@ -13,6 +13,7 @@ class OrderItemModel(BaseModel):
 
 class saleModel(BaseModel):
     id: Optional[str] = Field(None, alias="_id")
+    nombreVendedor: str
     nombreCliente: str
     fechaVenta: Optional[datetime] = None
     productos: List[OrderItemModel]
@@ -32,6 +33,7 @@ class saleModel(BaseModel):
         }
         schema_extra = {
             "example": {
+                "nombreVendedor": "Vendedor1",
                 "nombreCliente": "jose lovaton",
                 "fechaVenta": "2024-06-17 12:50:06.073606",
                 "productos": [

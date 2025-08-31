@@ -17,6 +17,7 @@ async def retrieve_sales(page: int, xpage: int, local:int):
     for sale in salesDb.find({"local": local}).skip(skipSales).limit(xpage):
         sale["id"] = str(sale["_id"])
         sale["precioTotalOriginal"] = sale.get("precioTotalOriginal", sale["precioTotal"])
+        # print(sale)
         sales.append(sale_helper(sale))
     return {"total": totalSales, "sales": sales, "page": page, "xpage": xpage}
 
@@ -39,7 +40,8 @@ async def get_sales_with_credit_state(page: int, xpage: int, local: int):
 
 async def add_sale(sale_data: dict) -> dict:
     
-    print(sale_data)
+    # print(sale_data)
+    
     sale_data["_id"] = ObjectId()
     
     sale_data["fechaVenta"] = datetime.now()
