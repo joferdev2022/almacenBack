@@ -1,3 +1,6 @@
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 def product_helper(products) -> dict:
     return {
         "id": str(products["_id"]),
@@ -19,14 +22,19 @@ def sale_helper(sales) -> dict:
     precio_total = sales.get("precioTotal", 0.0)
     precio_total_original = sales.get("precioTotalOriginal", precio_total)
     
-    # if precio_total_original is None:
-    #     precio_total_original = precio_total
-    
+    fecha_venta = sales.get("fechaVenta")
+    if isinstance(fecha_venta, datetime):
+        
+        fecha_venta = fecha_venta.astimezone(ZoneInfo("America/Lima")).isoformat()
+    else:
+        fecha_venta = str(fecha_venta)
+        
     return {
         "id": str(sales["_id"]),
         "nombreVendedor": sales["nombreVendedor"] if sales.get("nombreVendedor") not in [None, ""] else "Desconocido",
         "nombreCliente": sales["nombreCliente"],
-        "fechaVenta": sales["fechaVenta"],
+        "fechaVenta": fecha_venta,
+        # "fechaVenta": sales["fechaVenta"],
         "productos": sales["productos"],
         "precioTotal": float(precio_total) if precio_total is not None else 0.0,
         "precioTotalOriginal": float(precio_total_original) if precio_total_original is not None else 0.0,

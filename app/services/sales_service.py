@@ -44,7 +44,7 @@ async def add_sale(sale_data: dict) -> dict:
     
     sale_data["_id"] = ObjectId()
     
-    sale_data["fechaVenta"] = datetime.utcnow()
+    sale_data["fechaVenta"] = datetime.now(timezone.utc)
     # sale_data["fechaVenta"] = datetime.now(timezone.utc)
     
     sale_data["precioTotalOriginal"] = sale_data["precioTotal"]
@@ -146,8 +146,8 @@ async def update_payment_by_id(sale_id: str, new_payment: float):
     return False
 
 async def get_daily_Sales_summary(local: int):
-    today = datetime.utcnow()
-    start_day = datetime(today.year, today.month, today.day)
+    today = datetime.now(timezone.utc)
+    start_day = datetime(today.year, today.month, today.day, tzinfo=timezone.utc)
     end_day = start_day + timedelta(days=1)
 
     sales_cursor = salesDb.find({
