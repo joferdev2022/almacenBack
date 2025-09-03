@@ -15,6 +15,7 @@ class saleModel(BaseModel):
     id: Optional[str] = Field(None, alias="_id")
     nombreVendedor: str
     nombreCliente: str
+    direccionCliente: str
     fechaVenta: Optional[datetime] = None
     productos: List[OrderItemModel]
     precioTotal: float
@@ -35,6 +36,7 @@ class saleModel(BaseModel):
             "example": {
                 "nombreVendedor": "Vendedor1",
                 "nombreCliente": "jose lovaton",
+                "direccionCliente": "atalaya",
                 "fechaVenta": "2024-06-17 12:50:06.073606",
                 "productos": [
                     {

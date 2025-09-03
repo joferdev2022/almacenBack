@@ -24,7 +24,7 @@ def sale_helper(sales) -> dict:
     
     fecha_venta = sales.get("fechaVenta")
     if isinstance(fecha_venta, datetime):
-        
+
         fecha_venta = fecha_venta.astimezone(ZoneInfo("America/Lima")).isoformat()
     else:
         fecha_venta = str(fecha_venta)
@@ -32,7 +32,8 @@ def sale_helper(sales) -> dict:
     return {
         "id": str(sales["_id"]),
         "nombreVendedor": sales["nombreVendedor"] if sales.get("nombreVendedor") not in [None, ""] else "Desconocido",
-        "nombreCliente": sales["nombreCliente"],
+        "nombreCliente": sales["nombreCliente"] ,
+        "direccionCliente": sales["direccionCliente"] if sales.get("direccionCliente") not in [None, ""] else "Sin direccion",
         "fechaVenta": fecha_venta,
         # "fechaVenta": sales["fechaVenta"],
         "productos": sales["productos"],
