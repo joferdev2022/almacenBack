@@ -1,6 +1,7 @@
 from bson.objectid import ObjectId
 from fastapi import HTTPException
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from app.db.mongo import salesDb, productsDb
 from ..utils.helpers import sale_helper
@@ -146,13 +147,24 @@ async def update_payment_by_id(sale_id: str, new_payment: float):
     return False
 
 async def get_daily_Sales_summary(local: int):
-    today = datetime.now(timezone.utc)
-    start_day = datetime(today.year, today.month, today.day, tzinfo=timezone.utc)
-    end_day = start_day + timedelta(days=1)
+    tz = ZoneInfo("America/Lima")
+    now_local = datetime.now(tz)
+    # today = datetime.now(timezone.utc)
+    
+    # start_day = datetime(today.year, today.month, today.day, tzinfo=timezone.utc)
+    # end_day = start_day + timedelta(days=1)
+    
+    start_day_local = datetime(now_local.year, now_local.month, now_local.day, tzinfo=tz)
+    end_day_local = start_day_local + timedelta(days=1)
+    
+    start_day_utc = start_day_local.astimezone(ZoneInfo("UTC"))
+    end_day_utc = end_day_local.astimezone(ZoneInfo("UTC"))
+
+
 
     sales_cursor = salesDb.find({
         "local": local,
-        "fechaVenta": {"$gte": start_day, "$lt": end_day}
+        "fechaVenta": {"$gte": start_day_utc, "$lt": end_day_utc}
     })
     
     total_ventas = 0
