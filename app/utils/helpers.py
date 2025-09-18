@@ -17,6 +17,14 @@ def product_helper(products) -> dict:
         # "state": promotions["state"],
         "local": products["local"],
     }
+
+def seller_helper(sellers) -> dict:
+    return {
+        "id": str(sellers["_id"]),
+        "nombreVendedor": sellers["nombreVendedor"],
+        "aliasVendedor": sellers.get("aliasVendedor", ""),
+        "local": sellers["local"],
+    }
     
 def sale_helper(sales) -> dict:
     precio_total = sales.get("precioTotal", 0.0)
