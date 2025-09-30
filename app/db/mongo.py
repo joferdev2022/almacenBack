@@ -25,6 +25,7 @@ try:
     salesDb = db["sales"]
     authDb = db["auth"]
     sellersDb = db["salenMan"]
+    providersDb = db["providers"]
     # categories = db["categories"]
     
 except Exception as e:

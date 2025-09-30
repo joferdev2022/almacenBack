@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
-from app.routes import products_route, sales_route, dashboard_route, auth_route, seller_route
+from app.routes import products_route, sales_route, dashboard_route, auth_route, seller_route, supplier_route
 
 app = FastAPI()
 
@@ -29,6 +29,7 @@ async def read_root():
 app.include_router(auth_route.router, prefix='/api')
 app.include_router(products_route.router, prefix='/api')
 app.include_router(seller_route.router, prefix='/api')
+app.include_router(supplier_route.router, prefix='/api')
 app.include_router(sales_route.router, prefix='/api')
 app.include_router(dashboard_route.router, prefix='/api')
 

@@ -26,6 +26,30 @@ def seller_helper(sellers) -> dict:
         "local": sellers["local"],
     }
     
+
+def provider_helper(providers) -> dict:
+    
+    fecha_creacion = providers.get("fechaCreacion")
+    if isinstance(fecha_creacion, datetime):
+        fecha_creacion = fecha_creacion.astimezone(ZoneInfo("America/Lima")).isoformat()
+        
+    fecha_ultimo_pago = providers.get("fechaUltimoPago")
+    if isinstance(fecha_ultimo_pago, datetime):
+        fecha_ultimo_pago = fecha_ultimo_pago.astimezone(ZoneInfo("America/Lima")).isoformat()
+    
+    return {
+        "id": str(providers["_id"]),
+        "nombreProvider": providers["nombreProvider"],
+        "numeroProvider": providers.get("numeroProvider", ""),
+        "deudaInicial": providers["deudaInicial"],
+        "deudaActual": providers["deudaActual"],
+        "estadoProvider": providers["estadoProvider"],
+        "local": providers["local"],
+        # "fechaCreacion": providers.get("fechaCreacion"),
+        "fechaCreacion": fecha_creacion,
+        "fechaUltimoPago": fecha_ultimo_pago
+    }
+    
 def sale_helper(sales) -> dict:
     precio_total = sales.get("precioTotal", 0.0)
     precio_total_original = sales.get("precioTotalOriginal", precio_total)
