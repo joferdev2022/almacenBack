@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from bson import ObjectId
 from datetime import datetime
 
@@ -13,6 +13,8 @@ class providerModel(BaseModel):
     local: 0
     fechaCreacion: Optional[datetime] = None
     fechaUltimoPago: Optional[datetime] = None
+    pagos: Optional[List[Dict[str, Any]]] = []  # <-- Añadido
+
     
     class Config:
         allow_population_by_field_name = True

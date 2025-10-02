@@ -47,7 +47,8 @@ def provider_helper(providers) -> dict:
         "local": providers["local"],
         # "fechaCreacion": providers.get("fechaCreacion"),
         "fechaCreacion": fecha_creacion,
-        "fechaUltimoPago": fecha_ultimo_pago
+        "fechaUltimoPago": fecha_ultimo_pago,
+        "pagos": providers.get("pagos", [])
     }
     
 def sale_helper(sales) -> dict:

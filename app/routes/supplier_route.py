@@ -1,5 +1,6 @@
 from bson import ObjectId
 from fastapi import APIRouter, Depends, Body
+from pydantic import BaseModel
 
 from typing import List
 from fastapi.encoders import jsonable_encoder
@@ -8,6 +9,10 @@ from fastapi.responses import JSONResponse
 from app.services.supplier_service import add_provider, delete_provider_by_id, retrieve_providers, update_provider_by_id, update_provider_debt
 from app.models.provider_model import providerModel, ResponseProviderModel, ErrorResponseModel
 
+
+class ProviderDebtUpdate(BaseModel):
+    deuda: float
+    monto: float
 
 router = APIRouter()
 
@@ -47,8 +52,8 @@ async def update_provider(id: str, provider_data: providerModel):
     )
     
 @router.put("/providers/{id}/debt", tags=["providers"])
-async def update_provider_debt_route(id: str, deuda: float = Body(..., embed=True)):
-    result = await update_provider_debt(id, deuda)
+async def update_provider_debt_route(id: str, body: ProviderDebtUpdate):
+    result = await update_provider_debt(id, body.deuda, body.monto)
     if result:
         return ResponseProviderModel(
             f"Deuda actualizada para proveedor ID: {id}", 

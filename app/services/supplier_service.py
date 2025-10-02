@@ -65,15 +65,18 @@ async def delete_provider_by_id(provider_id: str):
         return True
     return False
 
-async def update_provider_debt(provider_id: str, new_debt: float):
+async def update_provider_debt(provider_id: str, new_debt: float, monto_pago: float):
+    now = datetime.now(timezone.utc)
     update_fields = {
         "deudaActual": new_debt,
-        "fechaUltimoPago": datetime.now(timezone.utc)  # Añade la fecha del último pago
+        "fechaUltimoPago": now # Añade la fecha del último pago
     }
     if new_debt == 0:
         update_fields["estadoProvider"] = "CANCELADO"
     result = providersDb.update_one(
         {"_id": ObjectId(provider_id)},
-        {"$set": update_fields}
+        {"$set": update_fields,
+         "$push": {"pagos": {"fecha": now, "monto": monto_pago}}
+         }
     )
     return result.modified_count == 1
