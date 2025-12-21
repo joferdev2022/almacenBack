@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 from typing import List, Optional
 from datetime import datetime, timedelta
+import calendar
 
 from app.services.dashboard_service import retrieve_dashboard_data
 from app.models.dashboard_model import ResponseDashboardModel
@@ -20,12 +21,21 @@ async def get_dashboard(fecha_inicio: Optional[datetime] = Query(None), fecha_fi
             }
         }
     else:
-        fecha_fin = datetime.utcnow()
-        fecha_inicio = fecha_fin - timedelta(days=30)
+        hoy = datetime.utcnow()
+        primer_dia_mes = hoy.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+        # fecha_fin = datetime.utcnow()
+        # fecha_inicio = fecha_fin - timedelta(days=30)
+                # Obtener el primer día del próximo mes
+        if hoy.month == 12:
+            ultimo_dia_mes = hoy.replace(year=hoy.year + 1, month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+        else:
+            ultimo_dia_mes = hoy.replace(month=hoy.month + 1, day=1, hour=0, minute=0, second=0, microsecond=0)
+     
         filtro_fecha = {
             "fechaVenta": {
-                "$gte": fecha_inicio,
-                "$lt": fecha_fin
+                "$gte": primer_dia_mes,
+                "$lt": ultimo_dia_mes
             }
         }
     

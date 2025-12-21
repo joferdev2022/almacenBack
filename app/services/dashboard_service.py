@@ -2,6 +2,7 @@ from bson.objectid import ObjectId
 from fastapi import HTTPException, Query
 from typing import List, Optional
 from datetime import datetime, timedelta
+import calendar
 
 from app.db.mongo import salesDb, productsDb
 from ..utils.helpers import sale_helper
@@ -33,10 +34,27 @@ async def retrieve_dashboard_data(filtro_fecha, local):
     result = list(salesDb.aggregate(pipeline))
     AmountSales = result[0]["total"] if result else 0
     totalSales = result[0]["totalSales"] if result else 0
+    monthlyProfit = await get_monthly_net_profit(filtro_fecha, local)
+
     
-    return {"totalSales": totalSales, "topProducts": topProducts, "lowProducts": lowProducts, "totalProducts": totalproducts, "AmountSales": AmountSales}
+    return {"totalSales": totalSales, "topProducts": topProducts, "lowProducts": lowProducts, "totalProducts": totalproducts, "AmountSales": AmountSales, "monthlyProfit": monthlyProfit}
 
 
+async def get_monthly_net_profit(filtro_fecha, local):
+    sales_cursor = salesDb.find({
+        "$and": [filtro_fecha, {"local": local}]
+    })
+    
+    ganancia_neta = 0
+    
+    for sale in sales_cursor:
+        for item in sale.get("productos", []):
+            precio_venta = item.get("precioUnitario", 0)
+            precio_compra = item.get("precioBuy", 0)
+            cantidad = item.get("cantidad", 0)
+            ganancia_neta += (precio_venta - precio_compra) * cantidad
+    
+    return ganancia_neta
 
 async def top_products(local: int):
     pipeline = [
