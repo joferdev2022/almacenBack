@@ -1,5 +1,7 @@
 from bson.objectid import ObjectId
 from fastapi import HTTPException
+import pandas as pd
+from io import BytesIO
 
 from app.db.mongo import productsDb
 from ..utils.helpers import product_helper
@@ -50,3 +52,19 @@ async def delete_product_by_id(product_id: str):
         # user_updated =  Items.find_one({"_id": user_id})
         return True
     return False
+
+
+async def upload_excel(file_data: bytes, local: int):
+    
+
+    df = pd.read_excel(BytesIO(file_data))
+    records = df.to_dict(orient='records')
+    
+    for record in records:
+        record["local"] = local
+        record["_id"] = ObjectId()
+    
+    if records:
+        productsDb.insert_many(records)
+    
+    return {"inserted_count": len(records)}

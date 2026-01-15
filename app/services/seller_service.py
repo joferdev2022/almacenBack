@@ -1,8 +1,10 @@
 from bson.objectid import ObjectId
 from fastapi import HTTPException
+from datetime import datetime
+from app.db.mongo import salesDb
 
 from app.db.mongo import sellersDb
-from ..utils.helpers import seller_helper
+from ..utils.helpers import sale_helper, seller_helper
 
 async def retrieve_sellers(page: int, xpage: int, local:int):
     sellers = []
@@ -50,3 +52,58 @@ async def delete_seller_by_id(seller_id: str):
         # user_updated =  Items.find_one({"_id": user_id})
         return True
     return False
+
+async def get_seller_monthly_stats(seller_name: str, local: int, year:int = None, month: int = None):
+    
+    start_date = datetime(year, month, 1)
+    
+    if month == 12:
+        end_date = datetime(year + 1, 1, 1)
+    else:
+        end_date = datetime(year, month + 1, 1)
+        
+    
+    
+    filter_query = {
+        "nombreVendedor": {"$regex": f"^\\s*{seller_name}\\s*$", "$options": "i"},
+        "local": local,
+        "fechaVenta": {
+            "$gte": start_date,
+            "$lt": end_date
+        }
+    }
+    
+    total_ventas = salesDb.count_documents(filter_query)
+    
+    sales = []
+    monto_total = 0
+    comision_total_estimada = 0
+    
+    for sale in salesDb.find(filter_query):
+        sale["id"] = str(sale["_id"])
+        comision_venta = 0
+        
+        for producto in sale.get("productos", []):
+            precio_venta = producto.get("precioUnitario", 0)
+            precio_compra = producto.get("precioBuy", 0)
+            cantidad = producto.get("cantidad", 1)
+            
+            ganancia = (precio_venta - precio_compra) * cantidad
+            comision_producto = ganancia * 0.5
+            comision_venta += comision_producto
+            
+        sale["comisionEstimada"] = round(comision_venta, 2)
+        comision_total_estimada += comision_venta
+        
+        sales.append(sale_helper(sale))
+        monto_total += sale.get("precioTotal", 0)
+        
+    return {
+        "vendedor": seller_name,
+        "mes": month,
+        "año": year,
+        "totalVentas": total_ventas,
+        "montoTotal": monto_total,
+        "comisionTotalEstimada": round(comision_total_estimada, 2),
+        "ventas": sales
+    }
