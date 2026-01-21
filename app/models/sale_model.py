@@ -22,6 +22,7 @@ class saleModel(BaseModel):
     precioTotalOriginal: Optional[float] = None
     estado: str = "pendiente"
     local:0
+    paymentMethod: str
     
     
     class Config:
@@ -58,7 +59,8 @@ class saleModel(BaseModel):
                 "precioTotal": 3300.00,
                 "precioTotalOriginal": 3300.00,
                 "estado": "pendiente",
-                "local":0
+                "local":0,
+                "paymentMethod": "yape"
             }
         }
         

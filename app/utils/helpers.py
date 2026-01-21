@@ -76,6 +76,7 @@ def sale_helper(sales) -> dict:
         # "precioTotalOriginal": float(sales.get("precioTotalOriginal", sales["precioTotal"])),
         "estado": sales["estado"],
         "local": sales["local"],
+        "paymentMethod": sales.get("paymentMethod", "Efectivo"),
     }
     
     
