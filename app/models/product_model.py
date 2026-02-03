@@ -18,7 +18,7 @@ class productModel(BaseModel):
     # codigoDeBarras: str
     fechaDeCreacion: Optional[datetime] = Field(default_factory=datetime.now)
     # fechaDeActualizacion: Optional[datetime] = Field(default_factory=datetime.now)
-    local:0
+    local: int = 0
     
     class Config:
         allow_population_by_field_name = True

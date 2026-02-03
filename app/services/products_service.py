@@ -1,3 +1,4 @@
+from datetime import datetime
 from bson.objectid import ObjectId
 from fastapi import HTTPException
 import pandas as pd
@@ -68,3 +69,108 @@ async def upload_excel(file_data: bytes, local: int):
         productsDb.insert_many(records)
     
     return {"inserted_count": len(records)}
+
+
+async def upload_excel(file_data: bytes, local: int):
+    df = pd.read_excel(BytesIO(file_data))
+    
+    df.columns = [col.strip().upper() for col in df.columns]
+
+    df = df.where(pd.notna(df), None)
+    
+    records = df.to_dict(orient='records')
+    
+    print(records)
+    
+    inserted_count = 0
+    updated_count = 0
+    
+    
+    for record in records:
+        # Limpiar claves del registro
+        record = {k.strip().upper() if isinstance(k, str) else k: v for k, v in record.items()}
+
+        # Mapear columnas del Excel al modelo
+        nombre = str(record.get("PRODUCTO", "")).strip() if record.get("PRODUCTO") else ""
+        # Saltar filas vacías
+        if not nombre:
+            continue
+        
+        # Función helper para convertir valores de forma segura
+        def safe_float(value):
+            if value is None or pd.isna(value):
+                return 0
+            try:
+                result = float(value)
+                return result if not pd.isna(result) else 0
+            except (ValueError, TypeError):
+                return 0
+        
+        def safe_int(value):
+            if value is None or pd.isna(value):
+                return 0
+            try:
+                result = int(float(value))
+                return result if not pd.isna(result) else 0
+            except (ValueError, TypeError):
+                return 0
+        
+        def safe_string(value):
+            if value is None or pd.isna(value):
+                return ""
+            return str(value).strip()
+        
+        
+        # Debug: imprime los valores leídos
+        precio_compra_raw = record.get("P. UNITARIO")
+        precio_venta_raw = record.get("P. VENTA")
+        
+        print(f"Producto: {nombre}")
+        print(f"  P.UNITARIO raw: {precio_compra_raw} (tipo: {type(precio_compra_raw)})")
+        print(f"  P.VENTA raw: {precio_venta_raw} (tipo: {type(precio_venta_raw)})")
+        
+        
+        # Mapear columnas del Excel al modelo
+        mapped_record = {
+            "nombre": nombre,
+            "descripcion": safe_string(record.get("DESCRIPCION")),
+            "categoria": safe_string(record.get("CATEGORIA")),
+            "precioCompra": safe_float(record.get("P. UNITARIO")),
+            "precioVenta": safe_float(record.get("P. VENTA")),
+            "cantidadEnStock": safe_int(record.get("CANTIDAD")),
+            "unidadDeMedida": safe_string(record.get("PRESENTACION")) or safe_string(record.get("'PRESENTACION")),
+            "marca": safe_string(record.get("MARCA")),
+            "proveedorId": record.get("PROVEEDORID") if record.get("PROVEEDORID") and not pd.isna(record.get("PROVEEDORID")) else None,
+            "fechaDeCaducidad": record.get("FECHADECADUCIDAD") if record.get("FECHADECADUCIDAD") and not pd.isna(record.get("FECHADECADUCIDAD")) else None,
+            "local": local,
+            "fechaDeCreacion": datetime.now()
+        }
+        
+        print(f"  precioCompra convertido: {mapped_record['precioCompra']}")
+        print(f"  precioVenta convertido: {mapped_record['precioVenta']}")
+        
+        
+        filter_query = {
+            "nombre": mapped_record["nombre"],
+            "local": local
+        }
+        
+        # Upsert: actualiza si existe, inserta si no
+        result = productsDb.update_one(
+            filter_query,
+            {"$set": mapped_record},
+            upsert=True
+        )
+        
+        if result.upserted_id:
+            inserted_count += 1
+        elif result.modified_count > 0:
+            updated_count += 1
+    
+    
+    
+    return {
+        "inserted_count": inserted_count,
+        "updated_count": updated_count,
+        "total_processed": len(records)
+    }

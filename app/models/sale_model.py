@@ -21,7 +21,7 @@ class saleModel(BaseModel):
     precioTotal: float
     precioTotalOriginal: Optional[float] = None
     estado: str = "pendiente"
-    local:0
+    local:int = 0
     paymentMethod: str
     
     

@@ -7,7 +7,7 @@ class sellerModel(BaseModel):
     id: Optional[str] = Field(None, alias="_id")
     nombreVendedor: str
     aliasVendedor: Optional[str]=None
-    local: 0
+    local: int = 0
    
     
     class Config:

@@ -10,7 +10,7 @@ class providerModel(BaseModel):
     deudaInicial: float = 0.0
     deudaActual: float = 0.0
     estadoProvider: str = "PENDIENTE"
-    local: 0
+    local: int = 0
     fechaCreacion: Optional[datetime] = None
     fechaUltimoPago: Optional[datetime] = None
     pagos: Optional[List[Dict[str, Any]]] = []  # <-- Añadido

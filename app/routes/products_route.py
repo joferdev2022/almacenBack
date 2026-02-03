@@ -1,10 +1,10 @@
 from bson import ObjectId
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, UploadFile
 from typing import List
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
-from app.services.products_service import retrieve_products, add_product, delete_product_by_id, update_product_by_id
+from app.services.products_service import retrieve_products, add_product, delete_product_by_id, update_product_by_id, upload_excel
 from app.models.product_model import productModel, ResponseProductModel, ErrorResponseModel
 
 
@@ -58,3 +58,20 @@ async def delete_product(id: str):
         404,
         "Hubo una falla borrando los datos del cliente",
     )
+    
+@router.post("/products/upload-excel", tags=["products"])
+async def upload_products_excel(file: UploadFile = File(...), local: int = 1):
+    try:
+        file_data = await file.read()
+        result = await upload_excel(file_data, local)
+        return {
+            "message": "Productos cargados exitosamente",
+            "inserted_count": result["inserted_count"],
+            "updated_count": result["updated_count"],
+        }
+    except Exception as e:
+        return ErrorResponseModel(
+            "Error al procesar el archivo",
+            400,
+            str(e)
+        )
