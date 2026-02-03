@@ -75,16 +75,12 @@ async def upload_excel(file_data: bytes, local: int):
     df = pd.read_excel(BytesIO(file_data))
     
     df.columns = [col.strip().upper() for col in df.columns]
-
     df = df.where(pd.notna(df), None)
     
     records = df.to_dict(orient='records')
     
-    print(records)
-    
     inserted_count = 0
     updated_count = 0
-    
     
     for record in records:
         # Limpiar claves del registro
@@ -92,6 +88,7 @@ async def upload_excel(file_data: bytes, local: int):
 
         # Mapear columnas del Excel al modelo
         nombre = str(record.get("PRODUCTO", "")).strip() if record.get("PRODUCTO") else ""
+        
         # Saltar filas vacías
         if not nombre:
             continue
@@ -120,15 +117,15 @@ async def upload_excel(file_data: bytes, local: int):
                 return ""
             return str(value).strip()
         
+        # DEBUG: Imprimir nombre exacto
         
-        # Debug: imprime los valores leídos
         precio_compra_raw = record.get("P. UNITARIO")
         precio_venta_raw = record.get("P. VENTA")
         
         print(f"Producto: {nombre}")
         print(f"  P.UNITARIO raw: {precio_compra_raw} (tipo: {type(precio_compra_raw)})")
         print(f"  P.VENTA raw: {precio_venta_raw} (tipo: {type(precio_venta_raw)})")
-        
+       
         
         # Mapear columnas del Excel al modelo
         mapped_record = {
@@ -146,16 +143,43 @@ async def upload_excel(file_data: bytes, local: int):
             "fechaDeCreacion": datetime.now()
         }
         
-        print(f"  precioCompra convertido: {mapped_record['precioCompra']}")
-        print(f"  precioVenta convertido: {mapped_record['precioVenta']}")
+        # # Buscar producto existente (case-insensitive)
+        # nombre_minusculas = nombre.lower()
+        # productos_local = list(productsDb.find({"local": local}))
         
+        # print(f"\nBuscando en BD ({len(productos_local)} productos):")
+        # producto_existente = None
+        
+        # for prod in productos_local:
+        #     nombre_bd = prod["nombre"].strip().lower()  # STRIP AQUI TAMBIEN
+        #     print(f"  BD: '{nombre_bd}' vs Excel: '{nombre_minusculas}' ? {nombre_bd == nombre_minusculas}")
+        #     if nombre_bd == nombre_minusculas:
+        #         producto_existente = prod
+        #         print(f"  ✓ ¡ENCONTRADO!")
+        #         break
+        
+        # if producto_existente:
+        #     # Actualizar producto existente
+        #     result = productsDb.update_one(
+        #         {"_id": producto_existente["_id"]},
+        #         {"$set": mapped_record}
+        #     )
+        #     updated_count += 1
+        #     print(f"✓ Producto ACTUALIZADO: {nombre}\n")
+        # else:
+        #     # Insertar nuevo producto
+        #     mapped_record["_id"] = ObjectId()
+        #     productsDb.insert_one(mapped_record)
+        #     inserted_count += 1
+        #     print(f"✗ Producto INSERTADO (nuevo): {nombre}\n")
+        
+        nombre_normalizado = nombre.lower()
         
         filter_query = {
-            "nombre": mapped_record["nombre"],
+            "nombre": {"$regex": f"^{nombre_normalizado}$", "$options": "i"},  # Búsqueda case-insensitive
             "local": local
         }
         
-        # Upsert: actualiza si existe, inserta si no
         result = productsDb.update_one(
             filter_query,
             {"$set": mapped_record},
@@ -166,7 +190,6 @@ async def upload_excel(file_data: bytes, local: int):
             inserted_count += 1
         elif result.modified_count > 0:
             updated_count += 1
-    
     
     
     return {
