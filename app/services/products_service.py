@@ -88,6 +88,7 @@ async def upload_excel(file_data: bytes, local: int):
 
         # Mapear columnas del Excel al modelo
         nombre = str(record.get("PRODUCTO", "")).strip() if record.get("PRODUCTO") else ""
+        presentacion = str(record.get("PRESENTACION", "")).strip() if record.get("PRESENTACION") else ""
         
         # Saltar filas vacías
         if not nombre:
@@ -135,7 +136,7 @@ async def upload_excel(file_data: bytes, local: int):
             "precioCompra": safe_float(record.get("P. UNITARIO")),
             "precioVenta": safe_float(record.get("P. VENTA")),
             "cantidadEnStock": safe_int(record.get("CANTIDAD")),
-            "unidadDeMedida": safe_string(record.get("PRESENTACION")) or safe_string(record.get("'PRESENTACION")),
+            "unidadDeMedida": presentacion,
             "marca": safe_string(record.get("MARCA")),
             "proveedorId": record.get("PROVEEDORID") if record.get("PROVEEDORID") and not pd.isna(record.get("PROVEEDORID")) else None,
             "fechaDeCaducidad": record.get("FECHADECADUCIDAD") if record.get("FECHADECADUCIDAD") and not pd.isna(record.get("FECHADECADUCIDAD")) else None,
@@ -174,9 +175,11 @@ async def upload_excel(file_data: bytes, local: int):
         #     print(f"✗ Producto INSERTADO (nuevo): {nombre}\n")
         
         nombre_normalizado = nombre.lower()
-        
+        presentacion_normalizada = presentacion.lower()
+
         filter_query = {
             "nombre": {"$regex": f"^{nombre_normalizado}$", "$options": "i"},  # Búsqueda case-insensitive
+            "unidadDeMedida": {"$regex": f"^{presentacion_normalizada}$", "$options": "i"},
             "local": local
         }
         
