@@ -55,20 +55,20 @@ async def delete_product_by_id(product_id: str):
     return False
 
 
-async def upload_excel(file_data: bytes, local: int):
+# async def upload_excel(file_data: bytes, local: int):
     
 
-    df = pd.read_excel(BytesIO(file_data))
-    records = df.to_dict(orient='records')
+#     df = pd.read_excel(BytesIO(file_data))
+#     records = df.to_dict(orient='records')
     
-    for record in records:
-        record["local"] = local
-        record["_id"] = ObjectId()
+#     for record in records:
+#         record["local"] = local
+#         record["_id"] = ObjectId()
     
-    if records:
-        productsDb.insert_many(records)
+#     if records:
+#         productsDb.insert_many(records)
     
-    return {"inserted_count": len(records)}
+#     return {"inserted_count": len(records)}
 
 
 async def upload_excel(file_data: bytes, local: int):

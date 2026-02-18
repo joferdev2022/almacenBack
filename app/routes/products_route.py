@@ -1,5 +1,5 @@
 from bson import ObjectId
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, Depends, File, UploadFile, Form
 from typing import List
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
@@ -60,7 +60,7 @@ async def delete_product(id: str):
     )
     
 @router.post("/products/upload-excel", tags=["products"])
-async def upload_products_excel(file: UploadFile = File(...), local: int = 1):
+async def upload_products_excel(file: UploadFile = File(...), local: int = Form(...)):
     try:
         file_data = await file.read()
         result = await upload_excel(file_data, local)
