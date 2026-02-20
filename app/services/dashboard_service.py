@@ -42,7 +42,7 @@ async def retrieve_dashboard_data(filtro_fecha, local):
 
 async def get_monthly_net_profit(filtro_fecha, local):
     sales_cursor = salesDb.find({
-        "$and": [filtro_fecha, {"local": local}]
+        "$and": [filtro_fecha, {"local": local},  {"estado": "cancelado"}]
     })
     
     ganancia_neta = 0

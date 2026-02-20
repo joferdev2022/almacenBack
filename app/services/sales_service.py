@@ -109,14 +109,24 @@ async def delete_sale_by_id(sale_id: str):
 
 
 async def update_state_by_id(sale_id: str, new_state: str):
+    
+    tz = ZoneInfo("America/Lima")
+    # now_local = datetime.now(tz)
     filter = {"_id": ObjectId(sale_id)}
     
-    # sale = salesDb.find_one(filter)
-    # if sale:
-    #     new_state = not sale.get("estado", False)
-    #     salesDb.update_one(filter, {"$set": {"estado": new_state}})
-    #     return True
-    result =  salesDb.update_one(filter, {"$set": {"estado": new_state}})
+    sale = salesDb.find_one(filter)
+    
+    if not sale:
+        return False
+    
+    update_data = {"estado": new_state}
+
+    # result =  salesDb.update_one(filter, {"$set": {"estado": new_state}})
+    if sale.get("estado") == "credito" and new_state == "cancelado":
+        update_data["fechaCancelacion"] = datetime.now(tz)
+        # update_data["fechaCancelacion"] = datetime.now(timezone.utc)
+    
+    result = salesDb.update_one(filter, {"$set": update_data})
     if result.modified_count == 1:
         return True
     return False
@@ -164,7 +174,12 @@ async def get_daily_Sales_summary(local: int):
 
     sales_cursor = salesDb.find({
         "local": local,
-        "fechaVenta": {"$gte": start_day_utc, "$lt": end_day_utc}
+        "estado": "cancelado",
+        "$or": [
+            {"fechaVenta": {"$gte": start_day_utc, "$lt": end_day_utc}},
+            {"fechaCancelacion": {"$gte": start_day_utc, "$lt": end_day_utc}}
+        ]
+        # "fechaVenta": {"$gte": start_day_utc, "$lt": end_day_utc}
     })
     
     total_ventas = 0
