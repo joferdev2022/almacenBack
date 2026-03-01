@@ -1,10 +1,10 @@
 from bson import ObjectId
-from fastapi import APIRouter, Depends, File, UploadFile, Form
+from fastapi import APIRouter, Depends, File, Query, UploadFile, Form
 from typing import List
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
-from app.services.products_service import retrieve_products, add_product, delete_product_by_id, update_product_by_id, upload_excel
+from app.services.products_service import retrieve_products, add_product, delete_product_by_id, update_product_by_id, upload_excel, download_excel
 from app.models.product_model import productModel, ResponseProductModel, ErrorResponseModel
 
 
@@ -75,3 +75,18 @@ async def upload_products_excel(file: UploadFile = File(...), local: int = Form(
             400,
             str(e)
         )
+        
+
+@router.get("/products/download-excel", tags=["products"])
+async def download_excel_route(local: int = Query(...)):
+    """
+    Descargar productos en formato Excel
+    """
+    result = await download_excel(local)
+    
+    return StreamingResponse(
+        iter([result["file"]]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={result['filename']}"}
+    )
+    

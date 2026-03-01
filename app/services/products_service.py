@@ -200,3 +200,40 @@ async def upload_excel(file_data: bytes, local: int):
         "updated_count": updated_count,
         "total_processed": len(records)
     }
+
+
+async def download_excel(local: int):
+    
+    productos = list(productsDb.find({"local": local}))
+    
+    if not productos:
+        raise HTTPException(status_code=404, detail="No hay productos para descargar")
+    
+    datos = []
+    
+    for prod in productos:
+        datos.append({
+            "CANTIDAD": prod.get("cantidadEnStock", 0),
+            "PRODUCTO": prod.get("nombre", ""),
+            "PRESENTACION": prod.get("unidadDeMedida", ""),
+            "MARCA": prod.get("marca", ""),
+            "CATEGORIA": prod.get("categoria", ""),
+            "DESCRIPCION": prod.get("descripcion", ""),
+            "P. UNITARIO": prod.get("precioCompra", 0),
+            "P. VENTA": prod.get("precioVenta", 0),
+         })
+    
+    
+    df = pd.DataFrame(datos)
+    output = BytesIO()
+    
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, sheet_name='Productos', index=False)
+    
+    output.seek(0)
+    
+    
+    return {
+        "file": output.getvalue(),
+        "filename": f"productos_local_{local}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    }

@@ -1,0 +1,49 @@
+[{
+  "_id": "67a5cb73bf7ae7004432f706",
+  "nombreCliente": "marcos primavera",
+  "fechaVenta": "2025-02-07 08:59:31.165000",
+  "productos": [
+    {
+      "productoId": "67a5ca15bf7ae7004432f6ff",
+      "productName": "creditos antiguos",
+      "cantidad": 1,
+      "precioUnitario": 420.0
+    }
+  ],
+  "precioTotalOriginal": 420.0,
+  "precioTotal": 277.0,
+  "estado": "cancelado",
+  "local": 1,
+  "fechaCancelacion": "2026-02-27 19:34:34.588000"
+}
+,
+{
+  "_id": "6833b0b2fa380f1f60b4736f",
+  "nombreCliente": "manchay aureliano",
+  "fechaVenta": "2025-05-26 00:07:14.621000",
+  "productos": [
+    {
+      "productoId": "66b22abba37e3197083c6aff",
+      "productName": "Blind extra",
+      "cantidad": 1,
+      "precioUnitario": 110.0
+    },
+    {
+      "productoId": "66fcd7454d6959d746562e9d",
+      "productName": "Phyton 27",
+      "cantidad": 2,
+      "precioUnitario": 300.0
+    },
+    {
+      "productoId": "6794607b43282fbc0c3a1fdb",
+      "productName": "apolo ph",
+      "cantidad": 1,
+      "precioUnitario": 30.0
+    }
+  ],
+  "precioTotalOriginal": 740.0,
+  "precioTotal": 140.0,
+  "estado": "cancelado",
+  "local": 1,
+  "fechaCancelacion": "2026-02-27 19:34:26.686000"
+}]
