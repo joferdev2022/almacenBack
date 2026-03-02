@@ -132,6 +132,7 @@ async def update_state_by_id(sale_id: str, new_state: str):
     return False
 
 async def update_payment_by_id(sale_id: str, new_payment: float):
+    tz = ZoneInfo("America/Lima")
     filter = {"_id": ObjectId(sale_id)}
     
     sale = salesDb.find_one(filter)
@@ -144,12 +145,30 @@ async def update_payment_by_id(sale_id: str, new_payment: float):
     else:
         original_payment = sale["precioTotalOriginal"]
     
+    
+    previous_payment = sale.get("precioTotal", 0)
+    partial_payment = previous_payment - new_payment
+    
+    
+    payment_record = {
+        "monto": partial_payment,
+        "fecha": datetime.now(tz)
+    }
+    
     update_data = {
         "precioTotal": new_payment,
         "precioTotalOriginal": original_payment
     }
     
-    result =  salesDb.update_one(filter, {"$set": update_data})
+    result = salesDb.update_one(
+        filter, 
+        {
+            "$set": update_data,
+            "$push": {"pagos": payment_record}
+        }
+    )
+    
+    # result =  salesDb.update_one(filter, {"$set": update_data})
     if result.modified_count == 1:
         updated_sale = salesDb.find_one(filter)
         print(updated_sale)
@@ -185,6 +204,7 @@ async def get_daily_Sales_summary(local: int):
     total_ventas = 0
     ganancia_neta = 0
     numero_ventas = 0
+    pagos_parciales_hoy = 0
     
     for sale in sales_cursor:
         total_ventas += sale.get("precioTotal", 0)
@@ -197,8 +217,31 @@ async def get_daily_Sales_summary(local: int):
             ganancia_neta += (precio_venta - precio_compra) * cantidad
         numero_ventas += 1
     
+    all_sales_cursor = salesDb.find({
+        "local": local,
+        "estado": "credito",
+        "pagos": {"$exists": True}
+    })
+    
+    
+    for sale in all_sales_cursor:
+        for pago in sale.get("pagos", []):
+            fecha_pago = pago.get("fecha")
+            if fecha_pago:
+                # Convertir a UTC si es necesario
+                if hasattr(fecha_pago, 'astimezone'):
+                    fecha_pago_utc = fecha_pago.astimezone(ZoneInfo("UTC"))
+                else:
+                    fecha_pago_utc = fecha_pago
+                
+                if start_day_utc <= fecha_pago_utc < end_day_utc:
+                    pagos_parciales_hoy += pago.get("monto", 0)
+    
+    
+    print(pagos_parciales_hoy)
     return {
         "ganancia_neta": ganancia_neta,
         "ventas_totales": total_ventas,
-        "numero_ventas": numero_ventas
+        "numero_ventas": numero_ventas,
+        "pagos_parciales_hoy": pagos_parciales_hoy,
     }

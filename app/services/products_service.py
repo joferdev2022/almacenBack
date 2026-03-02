@@ -36,8 +36,8 @@ async def update_product_by_id(producto_id: str, new_data: dict):
     if "_id" in new_data:
         del new_data["_id"]
     producto = productsDb.find_one({"_id": ObjectId(producto_id)})
-    print("esta imprimiendo el product")
-    print(producto)
+    # print("esta imprimiendo el product")
+    # print(producto)
     if producto:
         productsDb.update_one(
             {"_id": ObjectId(producto_id)}, {"$set": new_data}
@@ -123,9 +123,9 @@ async def upload_excel(file_data: bytes, local: int):
         precio_compra_raw = record.get("P. UNITARIO")
         precio_venta_raw = record.get("P. VENTA")
         
-        print(f"Producto: {nombre}")
-        print(f"  P.UNITARIO raw: {precio_compra_raw} (tipo: {type(precio_compra_raw)})")
-        print(f"  P.VENTA raw: {precio_venta_raw} (tipo: {type(precio_venta_raw)})")
+        # print(f"Producto: {nombre}")
+        # print(f"  P.UNITARIO raw: {precio_compra_raw} (tipo: {type(precio_compra_raw)})")
+        # print(f"  P.VENTA raw: {precio_venta_raw} (tipo: {type(precio_venta_raw)})")
        
         
         # Mapear columnas del Excel al modelo

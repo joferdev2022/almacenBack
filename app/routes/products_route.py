@@ -27,7 +27,7 @@ async def save_product(product_data: productModel):
     
     new_product = jsonable_encoder(product_data)
     product_bd = await add_product(new_product)
-    print(product_bd)
+    # print(product_bd)
     return "ok"
     # return ResponseCustomerModel("Cliente creado de forma correcta")
     
