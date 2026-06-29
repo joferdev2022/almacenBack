@@ -19,6 +19,7 @@ try:
     client.admin.command('ping')
     print("Pinged your deployment. You successfully connected to MongoDB!")
     db = client.almacen
+    db_liquor = client.licoreria
 
     # Items = db["usuarios"]
     productsDb = db["products"]
@@ -27,6 +28,13 @@ try:
     sellersDb = db["salenMan"]
     providersDb = db["providers"]
     # categories = db["categories"]
+    
+    #licoreria bd
+    auth_liquorDb = db_liquor["auth"]
+    products_liquorDb = db_liquor["products"]
+    sales_liquorDb = db_liquor["sales"]
+    providers_liquorDb = db_liquor["providers"]
+    
     
 except Exception as e:
     print(e)

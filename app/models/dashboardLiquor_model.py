@@ -16,8 +16,8 @@ class lowStockModel(BaseModel):
 
 class dashboardModel(BaseModel):
     totalSales: int
-    AmountSales: float
-    ingresoNeto: float
+    AmountSales: int
+    ingresoNeto: int
     totalProducts: int
     topProducts: List[topProductsModel]
     lowProducts: List[lowStockModel]
