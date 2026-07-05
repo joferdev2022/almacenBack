@@ -67,7 +67,7 @@ async def upload_products_excel(file: UploadFile = File(...), local: int = Form(
         return {
             "message": "Productos cargados exitosamente",
             "inserted_count": result["inserted_count"],
-            "updated_count": result["updated_count"],
+            "deleted_count": result["deleted_count"],
         }
     except Exception as e:
         return ErrorResponseModel(

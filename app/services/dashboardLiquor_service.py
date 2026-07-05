@@ -8,12 +8,41 @@ from app.db.mongo import sales_liquorDb, products_liquorDb
 from ..utils.helpers_liquor import sale_helper
 
 
-async def retrieve_dashboard_data(filtro_fecha, local):
-    topProducts = await top_products(local)
-    lowProducts = await low_stock_products(local)
-    totalproducts = products_liquorDb.count_documents({"local": local})
+def get_previous_month_filter(filtro_fecha):
+    """Calcula el filtro de fechas equivalente para el mes anterior."""
+    rango = filtro_fecha.get("fechaVenta", {})
+    fecha_inicio = rango.get("$gte")
+    fecha_fin = rango.get("$lt")
 
-    # Pipeline: cuenta TODAS las ventas del mes (incluidas crédito)
+    if not fecha_inicio or not fecha_fin:
+        return None
+
+    # El mes anterior termina donde empieza el actual
+    prev_fin = fecha_inicio
+
+    # Retroceder un mes
+    if fecha_inicio.month == 1:
+        prev_inicio = fecha_inicio.replace(year=fecha_inicio.year - 1, month=12)
+    else:
+        prev_inicio = fecha_inicio.replace(month=fecha_inicio.month - 1)
+
+    return {
+        "fechaVenta": {
+            "$gte": prev_inicio,
+            "$lt": prev_fin
+        }
+    }
+
+
+def calculate_percentage_change(current, previous):
+    """Calcula el porcentaje de cambio entre el valor actual y el anterior."""
+    if previous == 0:
+        return None  # Sin datos previos, el frontend decide qué mostrar
+    return round(((current - previous) / previous) * 100, 1)
+
+
+async def get_sales_aggregates(filtro_fecha, local):
+    """Retorna totalSales y AmountSales para un rango de fechas dado."""
     pipeline = [
         {"$match": {"$and": [filtro_fecha, {"local": local}]}},
         {
@@ -24,19 +53,44 @@ async def retrieve_dashboard_data(filtro_fecha, local):
             }
         }
     ]
-
     result = list(sales_liquorDb.aggregate(pipeline))
-    AmountSales = result[0]["total"] if result else 0
-    totalSales = result[0]["totalSales"] if result else 0
+    return {
+        "totalSales": result[0]["totalSales"] if result else 0,
+        "AmountSales": result[0]["total"] if result else 0
+    }
+
+
+async def retrieve_dashboard_data(filtro_fecha, local):
+    topProducts = await top_products(local)
+    lowProducts = await low_stock_products(local)
+    totalproducts = products_liquorDb.count_documents({"local": local})
+
+    # Datos del mes actual
+    current = await get_sales_aggregates(filtro_fecha, local)
     ingresoNeto = await get_monthly_net_income(filtro_fecha, local)
 
+    # Datos del mes anterior para comparación
+    prev_filter = get_previous_month_filter(filtro_fecha)
+    comparacion = {"ingresoNeto": 0.0, "AmountSales": 0.0, "totalSales": 0.0}
+
+    if prev_filter:
+        prev = await get_sales_aggregates(prev_filter, local)
+        prev_ingreso = await get_monthly_net_income(prev_filter, local)
+
+        comparacion = {
+            "ingresoNeto": calculate_percentage_change(ingresoNeto, prev_ingreso),
+            "AmountSales": calculate_percentage_change(current["AmountSales"], prev["AmountSales"]),
+            "totalSales": calculate_percentage_change(current["totalSales"], prev["totalSales"]),
+        }
+
     return {
-        "totalSales": totalSales,
+        "totalSales": current["totalSales"],
         "topProducts": topProducts,
         "lowProducts": lowProducts,
         "totalProducts": totalproducts,
-        "AmountSales": AmountSales,
-        "ingresoNeto": ingresoNeto
+        "AmountSales": current["AmountSales"],
+        "ingresoNeto": ingresoNeto,
+        "comparacion": comparacion
     }
 
 

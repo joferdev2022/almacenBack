@@ -11,7 +11,7 @@ from app.models.dashboardLiquor_model import ResponseDashboardModel
 router = APIRouter()
 
 
-@router.get("/dashboardliquor/", tags=["liquor dashboard"])
+@router.get("/dashboardliquor", tags=["liquor dashboard"])
 async def get_dashboard(fecha_inicio: Optional[datetime] = Query(None), fecha_fin:  Optional[datetime] = Query(None), local: int = Query(1)):
     if fecha_inicio and fecha_fin:
         filtro_fecha = {

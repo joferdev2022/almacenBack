@@ -79,14 +79,36 @@ async def upload_excel(file_data: bytes, local: int):
     
     records = df.to_dict(orient='records')
     
-    inserted_count = 0
-    updated_count = 0
+    # Funciones helper para convertir valores de forma segura
+    def safe_float(value):
+        if value is None or pd.isna(value):
+            return 0
+        try:
+            result = float(value)
+            return result if not pd.isna(result) else 0
+        except (ValueError, TypeError):
+            return 0
     
+    def safe_int(value):
+        if value is None or pd.isna(value):
+            return 0
+        try:
+            result = int(float(value))
+            return result if not pd.isna(result) else 0
+        except (ValueError, TypeError):
+            return 0
+    
+    def safe_string(value):
+        if value is None or pd.isna(value):
+            return ""
+        return str(value).strip()
+    
+    # Mapear todos los registros del Excel al modelo
+    mapped_records = []
     for record in records:
         # Limpiar claves del registro
         record = {k.strip().upper() if isinstance(k, str) else k: v for k, v in record.items()}
 
-        # Mapear columnas del Excel al modelo
         nombre = str(record.get("PRODUCTO", "")).strip() if record.get("PRODUCTO") else ""
         presentacion = str(record.get("PRESENTACION", "")).strip() if record.get("PRESENTACION") else ""
         
@@ -94,42 +116,8 @@ async def upload_excel(file_data: bytes, local: int):
         if not nombre:
             continue
         
-        # Función helper para convertir valores de forma segura
-        def safe_float(value):
-            if value is None or pd.isna(value):
-                return 0
-            try:
-                result = float(value)
-                return result if not pd.isna(result) else 0
-            except (ValueError, TypeError):
-                return 0
-        
-        def safe_int(value):
-            if value is None or pd.isna(value):
-                return 0
-            try:
-                result = int(float(value))
-                return result if not pd.isna(result) else 0
-            except (ValueError, TypeError):
-                return 0
-        
-        def safe_string(value):
-            if value is None or pd.isna(value):
-                return ""
-            return str(value).strip()
-        
-        # DEBUG: Imprimir nombre exacto
-        
-        precio_compra_raw = record.get("P. UNITARIO")
-        precio_venta_raw = record.get("P. VENTA")
-        
-        # print(f"Producto: {nombre}")
-        # print(f"  P.UNITARIO raw: {precio_compra_raw} (tipo: {type(precio_compra_raw)})")
-        # print(f"  P.VENTA raw: {precio_venta_raw} (tipo: {type(precio_venta_raw)})")
-       
-        
-        # Mapear columnas del Excel al modelo
-        mapped_record = {
+        mapped_records.append({
+            "_id": ObjectId(),
             "nombre": nombre,
             "descripcion": safe_string(record.get("DESCRIPCION")),
             "categoria": safe_string(record.get("CATEGORIA")),
@@ -142,62 +130,21 @@ async def upload_excel(file_data: bytes, local: int):
             "fechaDeCaducidad": record.get("FECHADECADUCIDAD") if record.get("FECHADECADUCIDAD") and not pd.isna(record.get("FECHADECADUCIDAD")) else None,
             "local": local,
             "fechaDeCreacion": datetime.now()
-        }
-        
-        # # Buscar producto existente (case-insensitive)
-        # nombre_minusculas = nombre.lower()
-        # productos_local = list(productsDb.find({"local": local}))
-        
-        # print(f"\nBuscando en BD ({len(productos_local)} productos):")
-        # producto_existente = None
-        
-        # for prod in productos_local:
-        #     nombre_bd = prod["nombre"].strip().lower()  # STRIP AQUI TAMBIEN
-        #     print(f"  BD: '{nombre_bd}' vs Excel: '{nombre_minusculas}' ? {nombre_bd == nombre_minusculas}")
-        #     if nombre_bd == nombre_minusculas:
-        #         producto_existente = prod
-        #         print(f"  ✓ ¡ENCONTRADO!")
-        #         break
-        
-        # if producto_existente:
-        #     # Actualizar producto existente
-        #     result = productsDb.update_one(
-        #         {"_id": producto_existente["_id"]},
-        #         {"$set": mapped_record}
-        #     )
-        #     updated_count += 1
-        #     print(f"✓ Producto ACTUALIZADO: {nombre}\n")
-        # else:
-        #     # Insertar nuevo producto
-        #     mapped_record["_id"] = ObjectId()
-        #     productsDb.insert_one(mapped_record)
-        #     inserted_count += 1
-        #     print(f"✗ Producto INSERTADO (nuevo): {nombre}\n")
-        
-        nombre_normalizado = nombre.lower()
-        presentacion_normalizada = presentacion.lower()
-
-        filter_query = {
-            "nombre": {"$regex": f"^{nombre_normalizado}$", "$options": "i"},  # Búsqueda case-insensitive
-            "unidadDeMedida": {"$regex": f"^{presentacion_normalizada}$", "$options": "i"},
-            "local": local
-        }
-        
-        result = productsDb.update_one(
-            filter_query,
-            {"$set": mapped_record},
-            upsert=True
-        )
-        
-        if result.upserted_id:
-            inserted_count += 1
-        elif result.modified_count > 0:
-            updated_count += 1
+        })
     
+    # 1. Eliminar todos los productos del local
+    delete_result = productsDb.delete_many({"local": local})
+    deleted_count = delete_result.deleted_count
+    
+    # 2. Insertar todos los productos nuevos de golpe
+    inserted_count = 0
+    if mapped_records:
+        productsDb.insert_many(mapped_records)
+        inserted_count = len(mapped_records)
     
     return {
+        "deleted_count": deleted_count,
         "inserted_count": inserted_count,
-        "updated_count": updated_count,
         "total_processed": len(records)
     }
 
