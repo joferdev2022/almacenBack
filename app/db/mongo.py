@@ -34,6 +34,7 @@ try:
     products_liquorDb = db_liquor["products"]
     sales_liquorDb = db_liquor["sales"]
     providers_liquorDb = db_liquor["providers"]
+    expenses_liquorDb = db_liquor["expenses"]
     
     
 except Exception as e:

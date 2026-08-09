@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
-from app.routes import authLiquor_route, dashboardLiquor_route, products_route, productsLiquor_route, sales_route, dashboard_route, auth_route, salesLiquor_route, seller_route, supplier_route
+from app.routes import authLiquor_route, dashboardLiquor_route, expensesLiquor_route, products_route, productsLiquor_route, sales_route, dashboard_route, auth_route, salesLiquor_route, seller_route, supplier_route
 
 app = FastAPI()
 
@@ -36,6 +36,7 @@ app.include_router(sales_route.router, prefix='/api')
 app.include_router(salesLiquor_route.router, prefix='/api')
 app.include_router(dashboard_route.router, prefix='/api')
 app.include_router(dashboardLiquor_route.router, prefix='/api')
+app.include_router(expensesLiquor_route.router, prefix='/api')
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host='0.0.0.0', port=8000, reload=True)

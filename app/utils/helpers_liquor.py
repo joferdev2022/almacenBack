@@ -86,5 +86,19 @@ def sale_helper(sale: dict) -> dict:
             )
 
     return sale
+
+
+def expense_helper(expense: dict) -> dict:
+    expense = deepcopy(expense)
+    expense["id"] = str(expense.pop("_id"))
+
+    fecha = expense.get("fecha")
+    if isinstance(fecha, datetime):
+        # PyMongo devuelve los datetimes sin tzinfo como UTC por defecto.
+        if fecha.tzinfo is None:
+            fecha = fecha.replace(tzinfo=ZoneInfo("UTC"))
+        expense["fecha"] = fecha.astimezone(ZoneInfo("America/Lima")).isoformat()
+
+    return expense
     
     
