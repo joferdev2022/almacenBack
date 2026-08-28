@@ -80,3 +80,28 @@ def sale_helper(sales) -> dict:
     }
     
     
+
+
+# Serialización de Gastos de almacen.
+_EXPENSE_TIMEZONE = ZoneInfo("America/Lima")
+
+
+def expense_helper(expense: dict) -> dict:
+    from datetime import timezone
+    from copy import deepcopy
+    from bson import ObjectId
+    from bson.decimal128 import Decimal128
+
+    result = deepcopy(expense)
+    result["id"] = str(result.pop("_id"))
+    for key, value in result.items():
+        if isinstance(value, ObjectId):
+            result[key] = str(value)
+        elif isinstance(value, Decimal128):
+            result[key] = float(value.to_decimal())
+        elif isinstance(value, datetime):
+            if value.tzinfo is None:
+                value = value.replace(tzinfo=timezone.utc)
+            result[key] = value.astimezone(_EXPENSE_TIMEZONE).isoformat()
+    return result
+

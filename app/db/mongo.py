@@ -27,6 +27,7 @@ try:
     authDb = db["auth"]
     sellersDb = db["salenMan"]
     providersDb = db["providers"]
+    expensesDb = db["expenses"]
     # categories = db["categories"]
     
     #licoreria bd
