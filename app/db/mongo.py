@@ -28,6 +28,9 @@ try:
     sellersDb = db["salenMan"]
     providersDb = db["providers"]
     expensesDb = db["expenses"]
+    cashRegistersDb = db["cash_registers"]
+    cashJournalsDb = db["cash_journals"]
+    cashMovementsDb = db["cash_movements"]
     # categories = db["categories"]
     
     #licoreria bd

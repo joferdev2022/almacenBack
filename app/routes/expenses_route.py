@@ -8,6 +8,7 @@ from app.models.expense_model import (
     PaymentMethod, ResponseExpenseModel,
 )
 from app.services import expenses_service as service
+from app.utils.operation_helpers import operation_key, OperationReason
 
 router = APIRouter(prefix="/expenses", tags=["expenses"])
 
@@ -41,8 +42,8 @@ def get_expenses(page: int = Query(default=1, ge=1), xpage: int = Query(default=
 
 
 @router.post("", status_code=201)
-def save_expense(data: ExpenseModel, user: dict = Depends(service.get_expense_writer)):
-    return ResponseExpenseModel(service.add_expense(data, user), "Gasto creado correctamente", 201)
+def save_expense(data: ExpenseModel, key: str = Depends(operation_key), user: dict = Depends(service.get_expense_writer)):
+    return ResponseExpenseModel(service.add_expense(data, user, key), "Gasto creado correctamente", 201)
 
 
 @router.get("/{id}")
@@ -51,16 +52,16 @@ def get_expense(id: str, user: dict = Depends(service.get_expense_user)):
 
 
 @router.put("/{id}")
-def update_expense(id: str, data: ExpenseModel, user: dict = Depends(service.get_expense_writer)):
-    return ResponseExpenseModel(service.update_expense_by_id(id, data, user), "Gasto actualizado correctamente")
+def update_expense(id: str, data: ExpenseModel, key: str = Depends(operation_key), user: dict = Depends(service.get_expense_writer)):
+    return ResponseExpenseModel(service.update_expense_by_id(id, data, user, key), "Gasto actualizado correctamente")
 
 
 @router.put("/{id}/pay")
-def pay_expense(id: str, data: ExpensePaymentModel, user: dict = Depends(service.get_expense_writer)):
-    return ResponseExpenseModel(service.pay_expense_by_id(id, data, user), "Gasto marcado como pagado")
+def pay_expense(id: str, data: ExpensePaymentModel, key: str = Depends(operation_key), user: dict = Depends(service.get_expense_writer)):
+    return ResponseExpenseModel(service.pay_expense_by_id(id, data, user, key), "Gasto marcado como pagado")
 
 
 @router.delete("/{id}")
-def delete_expense(id: str, user: dict = Depends(service.get_expense_writer)):
-    return ResponseExpenseModel(service.delete_expense_by_id(id, user), "Gasto eliminado correctamente")
+def delete_expense(id: str, data: OperationReason, key: str = Depends(operation_key), user: dict = Depends(service.get_expense_writer)):
+    return ResponseExpenseModel(service.delete_expense_by_id(id, user, key, data.motivo), "Gasto anulado correctamente")
 

@@ -19,6 +19,11 @@ from app.models.expense_model import (
 )
 from app.services.auth_service import ALGORITHM, SECRET_KEY
 from app.utils.helpers import expense_helper
+from app.services import cash_service as cash
+from app.services.cash_effects import capture_payment, revise_payment
+from app.models.payment_model import is_cash
+from app.utils.cash_helpers import ZERO, money
+from app.utils.operation_helpers import operation_hash, was_applied, stamp, ensure_active
 
 LIMA = ZoneInfo("America/Lima")
 expense_oauth = OAuth2PasswordBearer(tokenUrl="/api/auth")
@@ -104,7 +109,7 @@ def build_expense_query(user: dict, search="", fecha_desde=None, fecha_hasta=Non
         raise HTTPException(status_code=403, detail="No puedes consultar gastos de otro local.")
     if fecha_desde and fecha_hasta and fecha_desde > fecha_hasta:
         raise HTTPException(status_code=422, detail="La fecha desde no puede superar la fecha hasta.")
-    query = {"local": user["local"]}
+    query = {"local": user["local"], "anulado": {"$ne": True}}
     if fecha_desde or fecha_hasta:
         query["fecha"] = {}
         if fecha_desde:
@@ -158,7 +163,7 @@ def retrieve_expense_by_id(expense_id: str, user: dict):
     return expense_helper(expense)
 
 
-def _prepare_expense(data: ExpenseModel, user: dict, previous=None):
+def _prepare_expense(data: ExpenseModel, user: dict, previous=None, session=None):
     result = data.model_dump()
     result["fecha"] = _utc_day(data.fecha)
     result["fechaPago"] = _utc_day(data.fechaPago) if data.fechaPago else None
@@ -167,7 +172,7 @@ def _prepare_expense(data: ExpenseModel, user: dict, previous=None):
     result["proveedorNombre"] = None
     if data.proveedorId:
         provider_id = _object_id(data.proveedorId, "proveedor")
-        provider = providersDb.find_one({"_id": provider_id, "local": user["local"]})
+        provider = providersDb.find_one({"_id": provider_id, "local": user["local"]}, session=session)
         if provider:
             result["proveedorNombre"] = provider["nombreProvider"]
         elif previous and previous.get("proveedorId") == provider_id:
@@ -181,45 +186,97 @@ def _prepare_expense(data: ExpenseModel, user: dict, previous=None):
     return result
 
 
-def add_expense(data: ExpenseModel, user: dict):
-    expense = _prepare_expense(data, user)
-    expense.update({"_id": ObjectId(), "local": user["local"], "usuarioId": user["_id"],
-                    "created_at": expense["updated_at"]})
-    expensesDb.insert_one(expense)
+def _expense_effect(expense):
+    return -money(expense["monto"]) if expense["estado"] == "PAGADO" and is_cash(expense.get("metodoPago")) else ZERO
+
+
+def _expense_snapshot(expense):
+    return {key: expense.get(key) for key in ("monto", "estado", "metodoPago", "fechaPago")}
+
+
+def _write_expense(expense, session):
+    expensesDb.update_one({"_id": expense["_id"], "local": expense["local"]},
+        {"$set": {k: v for k, v in expense.items() if k != "_id"}}, session=session)
     return expense_helper(expense)
 
 
-def update_expense_by_id(expense_id: str, data: ExpenseModel, user: dict):
-    query = _scope(expense_id, user)
-    previous = expensesDb.find_one(query)
-    if previous is None:
-        raise HTTPException(status_code=404, detail="Gasto no encontrado.")
-    expense = expensesDb.find_one_and_update(
-        query, {"$set": _prepare_expense(data, user, previous)}, return_document=ReturnDocument.AFTER,
-    )
-    if expense is None:
-        raise HTTPException(status_code=404, detail="Gasto no encontrado.")
-    return expense_helper(expense)
+def add_expense(data: ExpenseModel, user: dict, key: str):
+    digest = operation_hash("CREAR", data.model_dump(mode="json"))
+    def write(session):
+        previous = expensesDb.find_one({"local": user["local"], "operacionCreacion": key}, session=session)
+        if previous:
+            was_applied(previous, key, digest)
+            return expense_helper(previous)
+        expense = _prepare_expense(data, user, session=session)
+        expense.update({"_id": ObjectId(), "local": user["local"], "usuarioId": user["_id"],
+                        "created_at": expense["updated_at"], "operacionCreacion": key, "anulado": False})
+        if expense["estado"] == "PAGADO":
+            expense["pagoCaja"] = capture_payment(user, session, "GASTO", expense["_id"],
+                f"GASTO:{expense['_id']}:{key}", _expense_effect(expense), expense.get("descripcion") or expense["categoria"])
+        stamp(expense, key, digest, user, "CREAR")
+        expensesDb.insert_one(expense, session=session)
+        return expense_helper(expense)
+    return cash.transaction(write)
 
 
-def pay_expense_by_id(expense_id: str, data: ExpensePaymentModel, user: dict):
-    query = _scope(expense_id, user)
-    expense = expensesDb.find_one_and_update(
-        {**query, "estado": "PENDIENTE"},
-        {"$set": {"estado": "PAGADO", "metodoPago": data.metodoPago,
-                  "fechaPago": _utc_day(data.fechaPago), "updated_at": datetime.now(timezone.utc),
-                  "updated_by": user["_id"]}}, return_document=ReturnDocument.AFTER,
-    )
-    if expense is None:
-        if expensesDb.find_one(query) is None:
-            raise HTTPException(status_code=404, detail="Gasto no encontrado.")
-        raise HTTPException(status_code=409, detail="El gasto ya no está pendiente. Actualiza el listado.")
-    return expense_helper(expense)
+def update_expense_by_id(expense_id: str, data: ExpenseModel, user: dict, key: str):
+    query, digest = _scope(expense_id, user), operation_hash("EDITAR", data.model_dump(mode="json"))
+    def write(session):
+        expense = expensesDb.find_one(query, session=session)
+        if expense is None:
+            raise HTTPException(404, "Gasto no encontrado.")
+        if was_applied(expense, key, digest):
+            return expense_helper(expense)
+        ensure_active(expense)
+        before = _expense_snapshot(expense)
+        was_paid = expense["estado"] == "PAGADO"
+        expense.update(_prepare_expense(data, user, expense, session))
+        changes = [{"antes": before, "despues": _expense_snapshot(expense)}]
+        if not was_paid and expense["estado"] == "PAGADO":
+            expense["pagoCaja"] = capture_payment(user, session, "GASTO", expense["_id"],
+                f"GASTO:{expense['_id']}:{key}", _expense_effect(expense), expense.get("descripcion") or expense["categoria"])
+        elif was_paid:
+            expense["pagoCaja"], adjustment = revise_payment(expense.get("pagoCaja"), _expense_effect(expense),
+                user, session, "GASTO", expense["_id"], f"GASTO:{expense['_id']}:{key}",
+                "Corrección de gasto: " + (expense.get("descripcion") or expense["categoria"]))
+            if adjustment:
+                changes.append(adjustment)
+        stamp(expense, key, digest, user, "EDITAR", changes=changes)
+        return _write_expense(expense, session)
+    return cash.transaction(write)
 
 
-def delete_expense_by_id(expense_id: str, user: dict):
-    expense = expensesDb.find_one_and_delete(_scope(expense_id, user))
-    if expense is None:
-        raise HTTPException(status_code=404, detail="Gasto no encontrado.")
-    return expense_helper(expense)
+def pay_expense_by_id(expense_id: str, data: ExpensePaymentModel, user: dict, key: str):
+    query, digest = _scope(expense_id, user), operation_hash("PAGAR", data.model_dump(mode="json"))
+    def write(session):
+        expense = expensesDb.find_one(query, session=session)
+        if expense is None:
+            raise HTTPException(404, "Gasto no encontrado.")
+        if was_applied(expense, key, digest):
+            return expense_helper(expense)
+        ensure_active(expense)
+        if expense["estado"] != "PENDIENTE":
+            raise HTTPException(409, "El gasto ya no está pendiente. Actualiza el listado.")
+        expense.update(estado="PAGADO", metodoPago=data.metodoPago, fechaPago=_utc_day(data.fechaPago))
+        expense["pagoCaja"] = capture_payment(user, session, "GASTO", expense["_id"],
+            f"GASTO:{expense['_id']}:{key}", _expense_effect(expense), expense.get("descripcion") or expense["categoria"])
+        stamp(expense, key, digest, user, "PAGAR")
+        return _write_expense(expense, session)
+    return cash.transaction(write)
 
+
+def delete_expense_by_id(expense_id: str, user: dict, key: str, reason: str):
+    query, digest = _scope(expense_id, user), operation_hash("ANULAR", reason)
+    def write(session):
+        expense = expensesDb.find_one(query, session=session)
+        if expense is None:
+            raise HTTPException(404, "Gasto no encontrado.")
+        if was_applied(expense, key, digest) or expense.get("anulado"):
+            return expense_helper(expense)
+        link, adjustment = revise_payment(expense.get("pagoCaja"), ZERO, user, session, "GASTO",
+            expense["_id"], f"GASTO:{expense['_id']}:{key}", "Anulación de gasto: " + reason, annul=True)
+        expense.update(anulado=True, anulado_at=datetime.now(timezone.utc), anulado_by=user["_id"],
+                       motivoAnulacion=reason, pagoCaja=link)
+        stamp(expense, key, digest, user, "ANULAR", reason, [adjustment] if adjustment else [])
+        return _write_expense(expense, session)
+    return cash.transaction(write)

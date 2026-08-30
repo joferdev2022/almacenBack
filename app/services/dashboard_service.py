@@ -20,7 +20,7 @@ async def retrieve_dashboard_data(filtro_fecha, local):
     
     pipeline = [
         
-        {"$match": {"$and": [filtro_fecha, {"local": local}]}},
+        {"$match": {"$and": [filtro_fecha, {"local": local}, {"anulado": {"$ne": True}}]}},
         {
             "$group": {
                 "_id": None,
@@ -42,7 +42,7 @@ async def retrieve_dashboard_data(filtro_fecha, local):
 
 async def get_monthly_net_profit(filtro_fecha, local):
     sales_cursor = salesDb.find({
-        "$and": [filtro_fecha, {"local": local},  {"estado": "cancelado"}]
+        "$and": [filtro_fecha, {"local": local}, {"estado": "cancelado"}, {"anulado": {"$ne": True}}]
     })
     
     ganancia_neta = 0
@@ -58,7 +58,7 @@ async def get_monthly_net_profit(filtro_fecha, local):
 
 async def top_products(local: int):
     pipeline = [
-        {"$match": {"local": local}},
+        {"$match": {"local": local, "anulado": {"$ne": True}}},
         {"$unwind": "$productos"},
         {
             "$group": {

@@ -11,7 +11,7 @@ ExpenseCategory = Literal[
     "Compras menores", "Alquiler", "Personal", "Impuestos", "Otros",
 ]
 ExpenseState = Literal["PAGADO", "PENDIENTE"]
-PaymentMethod = Literal["EFECTIVO", "YAPE", "PLIN", "TRANSFERENCIA", "TARJETA", "OTRO"]
+from app.models.payment_model import PaymentMethod
 ReceiptType = Literal["BOLETA", "FACTURA", "RECIBO", "SIN_COMPROBANTE", "OTRO"]
 
 

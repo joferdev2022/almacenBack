@@ -1,108 +1,70 @@
-from fastapi import APIRouter, Depends
-from typing import List
-from bson import ObjectId
-from fastapi.encoders import jsonable_encoder
-from fastapi.responses import JSONResponse
+from typing import Optional
 
-from app.services.sales_service import retrieve_sales, add_sale, delete_sale_by_id, update_sale_by_id, update_state_by_id, update_payment_by_id, get_sales_with_credit_state, get_daily_Sales_summary
-from app.models.sale_model import saleModel, ResponseSaleModel, ErrorResponseModel
+from fastapi import APIRouter, Depends, HTTPException, Query
 
-# from app.services.products_service import retrieve_products, add_product, delete_product_by_id, update_product_by_id
-# from app.models.product_model import productModel, ResponseProductModel, ErrorResponseModel
+from app.models.sales_model import saleModel, SalePaymentModel, ResponseSaleModel
+from app.services import sales_service as service
+from app.services.expenses_service import get_expense_user as get_current_user
+from app.utils.operation_helpers import OperationReason, operation_key
 
-
-router = APIRouter()
+router = APIRouter(prefix="/sales", tags=["sales"])
 
 
-@router.get("/sales", tags=["sales"])
-async def get_sales(page: int = 1, xpage: int = 10, local: int = 1):
-    sales_list = await retrieve_sales(page, xpage, local)
-    
-    # print(sales_list)
-    return ResponseSaleModel(sales_list, "Lista de ventas")
-
-@router.get("/sales/credits", tags=["sales"])
-async def get_sales_with_credits(page: int = 1, xpage: int = 10, local: int = 1):
-    sales_list = await get_sales_with_credit_state(page, xpage, local)
-    
-    # print(sales_list)
-    return ResponseSaleModel(sales_list, "Lista de ventas a credito")
+def get_sales_writer(user: dict = Depends(get_current_user)):
+    if user.get("permissions") != 1:
+        raise HTTPException(403, "No tienes permiso para modificar ventas.")
+    return user
 
 
-@router.get("/sales/summary/daily", tags=["sales"])
-async def daily_sales_summary(local: int = 1):
-    summary = await get_daily_Sales_summary(local)
-    return summary
-
-@router.post("/sales", tags=["sales"])
-async def save_sale(sale_data: saleModel):
-    
-    new_sale = jsonable_encoder(sale_data)
-    sale_bd = await add_sale(new_sale)
-    # print(sale_bd)
-    return "ok"
-    # return ResponseCustomerModel("Cliente creado de forma correcta")
-    
-@router.put("/sales/{id}", tags=["sales"])
-async def update_sale(id: str, sale_data: saleModel):
-    
-    sale_update = jsonable_encoder(sale_data)
-    result = await update_sale_by_id(id, sale_update)
-    
-    if result:
-        return ResponseSaleModel("Venta ID: {} actualizado".format(id), "Venta actualizado de forma correcta")
-        
-    return ErrorResponseModel(
-        "Ocurrió un error",
-        404,
-        "Hubo una falla actualizando los datos de la venta",
-    )
-
-@router.put("/sales/state/{id}", tags=["sales"])
-async def update_state_sale(id: str, state: str):
-    # sale_update = {"estado": state}
-    result = await update_state_by_id(id, state)
-    
-    if result:
-        return ResponseSaleModel("Venta ID: {} actualizado".format(id), "Venta actualizada de forma correcta")
-        
-    return ErrorResponseModel(
-        "Ocurrió un error",
-        404,
-        "Hubo una falla actualizando los datos de la venta",
-    )
-    
-@router.put("/sales/payment/{id}", tags=["sales"])
-async def update_state_sale(id: str, payment: float):
-    # sale_update = {"estado": state}
-    result = await update_payment_by_id(id, payment)
-    
-    if result:
-        return ResponseSaleModel("Venta ID: {} actualizado".format(id), "Venta actualizada de forma correcta")
-        
-    return ErrorResponseModel(
-        "Ocurrió un error",
-        404,
-        "Hubo una falla actualizando los datos de la venta",
-    )
-
-@router.delete("/sales/{id}", tags=["sales"])
-async def delete_sale(id: str):
-    result = await delete_sale_by_id(id)
-    if result:
-        # return ResponseCustomerModel("Cliente ID: {} borrado".format(id), "Cliente borrado exitosamente")
-        return "venta borrada"
-    # user = create_user(user_data)
-    return ErrorResponseModel(
-        "Ocurrió un error",
-        404,
-        "Hubo una falla borrando los datos de la venta",
-    )
+def scoped_local(local, user):
+    if local is not None and local != user["local"]:
+        raise HTTPException(403, "No puedes consultar ventas de otro local.")
+    return user["local"]
 
 
+@router.get("")
+def get_sales(page: int = Query(1, ge=1), xpage: int = Query(10, ge=1, le=5000),
+              local: Optional[int] = None, user: dict = Depends(get_current_user)):
+    return ResponseSaleModel(service.retrieve_sales(page, xpage, scoped_local(local, user)), "Lista de ventas")
 
 
+@router.get("/credits")
+def get_credits(page: int = Query(1, ge=1), xpage: int = Query(10, ge=1, le=5000),
+                local: Optional[int] = None, user: dict = Depends(get_current_user)):
+    return ResponseSaleModel(service.get_sales_with_credit_state(page, xpage, scoped_local(local, user)), "Ventas a crédito")
 
 
+@router.get("/summary/daily")
+def summary(local: Optional[int] = None, user: dict = Depends(get_current_user)):
+    return service.get_daily_Sales_summary(scoped_local(local, user))
 
 
+@router.post("")
+def create(data: saleModel, key: str = Depends(operation_key), user: dict = Depends(get_sales_writer)):
+    return ResponseSaleModel(service.add_sale(data, user, key), "Venta registrada correctamente")
+
+
+@router.put("/state/{id}")
+def change_state(id: str, data: OperationReason, state: str, key: str = Depends(operation_key),
+                 user: dict = Depends(get_sales_writer)):
+    return ResponseSaleModel(service.update_state_by_id(id, state, data.motivo, user, key), "Cobro corregido")
+
+
+@router.put("/payment/{id}")
+def collect(id: str, data: SalePaymentModel, key: str = Depends(operation_key), user: dict = Depends(get_sales_writer)):
+    return ResponseSaleModel(service.update_payment_by_id(id, data, user, key), "Cobro registrado correctamente")
+
+
+@router.get("/{id}")
+def detail(id: str, user: dict = Depends(get_current_user)):
+    return ResponseSaleModel(service.get_sale_by_id(id, user), "Detalle de venta")
+
+
+@router.put("/{id}")
+def edit(id: str, data: saleModel, key: str = Depends(operation_key), user: dict = Depends(get_sales_writer)):
+    return ResponseSaleModel(service.update_sale_by_id(id, data, user, key), "Venta actualizada correctamente")
+
+
+@router.delete("/{id}")
+def annul(id: str, data: OperationReason, key: str = Depends(operation_key), user: dict = Depends(get_sales_writer)):
+    return ResponseSaleModel(service.delete_sale_by_id(id, user, key, data.motivo), "Venta anulada correctamente")

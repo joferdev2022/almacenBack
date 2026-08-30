@@ -18,101 +18,12 @@ from bson.decimal128 import Decimal128
 from fastapi import FastAPI
 
 
-def matches(document, query):
-    for key, expected in query.items():
-        if key == "$or":
-            if not any(matches(document, clause) for clause in expected):
-                return False
-            continue
-        actual = document.get(key)
-        if isinstance(expected, dict):
-            if "$regex" in expected and not re.search(expected["$regex"], actual or "", re.I):
-                return False
-            if "$gte" in expected and not actual >= expected["$gte"]:
-                return False
-            if "$lt" in expected and not actual < expected["$lt"]:
-                return False
-        elif actual != expected:
-            return False
-    return True
+from uuid import uuid4
+from memory_db import MemoryDatabase, database_patches
+from app.routes.expenses_route import router
+from app.services import expenses_service as service
+from app.services.auth_service import create_access_token
 
-
-def evaluate(expression, document):
-    if isinstance(expression, str) and expression.startswith("$"):
-        value = document.get(expression[1:])
-        return value.to_decimal() if isinstance(value, Decimal128) else value
-    if isinstance(expression, dict):
-        operator, args = next(iter(expression.items()))
-        if operator == "$eq":
-            return evaluate(args[0], document) == evaluate(args[1], document)
-        if operator == "$and":
-            return all(evaluate(arg, document) for arg in args)
-        if operator == "$cond":
-            return evaluate(args[1] if evaluate(args[0], document) else args[2], document)
-    return expression
-
-
-class MemoryCursor(list):
-    def sort(self, fields):
-        for field, direction in reversed(fields):
-            super().sort(key=lambda row: row.get(field), reverse=direction == -1)
-        return self
-
-    def skip(self, amount):
-        return MemoryCursor(self[amount:])
-
-    def limit(self, amount):
-        return MemoryCursor(self[:amount])
-
-
-class MemoryCollection:
-    def __init__(self):
-        self.documents = []
-
-    def find(self, query, projection=None):
-        return MemoryCursor(deepcopy([doc for doc in self.documents if matches(doc, query)]))
-
-    def find_one(self, query, projection=None):
-        return next(iter(self.find(query, projection)), None)
-
-    def count_documents(self, query):
-        return len(self.find(query))
-
-    def insert_one(self, document):
-        self.documents.append(deepcopy(document))
-        return types.SimpleNamespace(inserted_id=document["_id"])
-
-    def find_one_and_update(self, query, update, **kwargs):
-        for document in self.documents:
-            if matches(document, query):
-                document.update(deepcopy(update["$set"]))
-                return deepcopy(document)
-        return None
-
-    def find_one_and_delete(self, query):
-        for document in self.documents:
-            if matches(document, query):
-                self.documents.remove(document)
-                return deepcopy(document)
-        return None
-
-    def aggregate(self, pipeline):
-        rows = self.find(pipeline[0]["$match"])
-        if not rows:
-            return []
-        return [{key: Decimal128(sum((Decimal(evaluate(value["$sum"], row)) for row in rows), Decimal(0)))
-                 for key, value in pipeline[1]["$group"].items() if key != "_id"}]
-
-
-# Sustituir el módulo antes de importar el router evita el ping remoto de mongo.py.
-mongo_stub = types.ModuleType("app.db.mongo")
-mongo_stub.authDb = MemoryCollection()
-mongo_stub.providersDb = MemoryCollection()
-mongo_stub.expensesDb = MemoryCollection()
-with patch.dict(sys.modules, {"app.db.mongo": mongo_stub}):
-    from app.routes.expenses_route import router
-    from app.services import expenses_service as service
-    from app.services.auth_service import create_access_token
 
 app = FastAPI()
 app.include_router(router, prefix="/api")
@@ -120,14 +31,9 @@ app.include_router(router, prefix="/api")
 
 class ExpensesApiTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
-        self.auth = MemoryCollection()
-        self.providers = MemoryCollection()
-        self.expenses = MemoryCollection()
-        self.patches = [
-            patch.object(service, "authDb", self.auth),
-            patch.object(service, "providersDb", self.providers),
-            patch.object(service, "expensesDb", self.expenses),
-        ]
+        self.db = MemoryDatabase()
+        self.auth, self.providers, self.expenses = self.db.authDb, self.db.providersDb, self.db.expensesDb
+        self.patches = database_patches(self.db)
         for item in self.patches:
             item.start()
             self.addCleanup(item.stop)
@@ -151,8 +57,10 @@ class ExpensesApiTests(unittest.IsolatedAsyncioTestCase):
                 "monto": 50, "estado": "PAGADO", "metodoPago": "EFECTIVO", **overrides}
 
     async def request(self, method, path="/api/expenses", data=None, token="default", **params):
+        if method == "DELETE" and data is None:
+            data = {"motivo": "Anulación de prueba"}
         body = json.dumps(data).encode() if data is not None else b""
-        headers = [(b"content-type", b"application/json")]
+        headers = [(b"content-type", b"application/json"), (b"idempotency-key", str(uuid4()).encode())]
         effective_token = self.token if token == "default" else token
         if effective_token:
             headers.append((b"authorization", ("Bearer " + effective_token).encode()))
@@ -416,8 +324,12 @@ class ExpensesApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["data"]["id"], expense["id"])
         status, _ = await self.request("DELETE", path)
         self.assertEqual(status, 200)
-        status, _ = await self.request("GET", path)
-        self.assertEqual(status, 404)
+        status, detail = await self.request("GET", path)
+        self.assertEqual(status, 200)
+        self.assertTrue(detail["data"]["anulado"])
+        self.assertEqual(len(self.expenses.documents), 1)
+        _, listing = await self.request("GET")
+        self.assertEqual(listing["total"], 0)
         status, _ = await self.request("GET", "/api/expenses/not-an-id")
         self.assertEqual(status, 400)
 

@@ -67,6 +67,7 @@ async def get_seller_monthly_stats(seller_name: str, local: int, year:int = None
     filter_query = {
         "nombreVendedor": {"$regex": f"^\\s*{seller_name}\\s*$", "$options": "i"},
         "local": local,
+        "anulado": {"$ne": True},
         "fechaVenta": {
             "$gte": start_date,
             "$lt": end_date

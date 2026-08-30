@@ -52,34 +52,13 @@ def provider_helper(providers) -> dict:
     }
     
 def sale_helper(sales) -> dict:
-    precio_total = sales.get("precioTotal", 0.0)
-    precio_total_original = sales.get("precioTotalOriginal", precio_total)
-    
-    fecha_venta = sales.get("fechaVenta")
-    if isinstance(fecha_venta, datetime):
-
-        fecha_venta = fecha_venta.astimezone(ZoneInfo("America/Lima")).isoformat()
-    else:
-        fecha_venta = str(fecha_venta)
-        
-    return {
-        "id": str(sales["_id"]),
-        "nombreVendedor": sales["nombreVendedor"] if sales.get("nombreVendedor") not in [None, ""] else "Desconocido",
-        "nombreCliente": sales["nombreCliente"] ,
-        "direccionCliente": sales["direccionCliente"] if sales.get("direccionCliente") not in [None, ""] else "Sin direccion",
-        "fechaVenta": fecha_venta,
-        # "fechaVenta": sales["fechaVenta"],
-        "productos": sales["productos"],
-        "precioTotal": float(precio_total) if precio_total is not None else 0.0,
-        "precioTotalOriginal": float(precio_total_original) if precio_total_original is not None else 0.0,
-        # "precioTotal": float(sales["precioTotal"]),
-        # "precioTotalOriginal": float(sales.get("precioTotalOriginal", sales["precioTotal"])),
-        "estado": sales["estado"],
-        "local": sales["local"],
-        "paymentMethod": sales.get("paymentMethod", "Efectivo"),
-    }
-    
-    
+    from app.utils.cash_helpers import serialize
+    result = {key: value for key, value in sales.items() if key not in ("operaciones", "operacionCreacion")}
+    result["precioTotalOriginal"] = sales.get("precioTotalOriginal", sales.get("precioTotal", 0))
+    result["nombreVendedor"] = sales.get("nombreVendedor") or "Desconocido"
+    result["direccionCliente"] = sales.get("direccionCliente") or "Sin direccion"
+    result["paymentMethod"] = sales.get("paymentMethod") or "Sin registrar"
+    return serialize(result)
 
 
 # Serialización de Gastos de almacen.
@@ -87,21 +66,5 @@ _EXPENSE_TIMEZONE = ZoneInfo("America/Lima")
 
 
 def expense_helper(expense: dict) -> dict:
-    from datetime import timezone
-    from copy import deepcopy
-    from bson import ObjectId
-    from bson.decimal128 import Decimal128
-
-    result = deepcopy(expense)
-    result["id"] = str(result.pop("_id"))
-    for key, value in result.items():
-        if isinstance(value, ObjectId):
-            result[key] = str(value)
-        elif isinstance(value, Decimal128):
-            result[key] = float(value.to_decimal())
-        elif isinstance(value, datetime):
-            if value.tzinfo is None:
-                value = value.replace(tzinfo=timezone.utc)
-            result[key] = value.astimezone(_EXPENSE_TIMEZONE).isoformat()
-    return result
-
+    from app.utils.cash_helpers import serialize
+    return serialize({key: value for key, value in expense.items() if key not in ("operaciones", "operacionCreacion")})
