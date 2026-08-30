@@ -12,10 +12,15 @@ def capture_payment(user, session, source_type, source_id, event_id, amount, des
     register = cash.touch_register(user, session)
     active = register.get("inicioControl") is not None
     link = {"controlado": active, "jornadaId": None, "monto": Decimal128(ZERO), "movimientoId": None}
-    if not active:
-        return link
     if amount:
+        # Una escritura nueva en efectivo siempre exige Caja abierta, incluso si
+        # las colecciones fueron vaciadas y aún no existe una primera apertura.
         journal = cash.lock_open_journal(register, user, session)
+        link["controlado"] = True
+    elif not active:
+        # Los métodos no efectivos previos a la primera apertura no se importan
+        # retroactivamente cuando el control de Caja comience.
+        return link
     else:
         journal = cash.cashJournalsDb.find_one(
             {"local": user["local"], "cajaId": register["_id"], "estado": "ABIERTA"}, session=session)

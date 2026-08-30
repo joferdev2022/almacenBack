@@ -21,7 +21,8 @@ from fastapi import FastAPI
 from uuid import uuid4
 from memory_db import MemoryDatabase, database_patches
 from app.routes.expenses_route import router
-from app.services import expenses_service as service
+from app.services import expenses_service as service, cash_service
+from app.models.cash_model import CashOpening
 from app.services.auth_service import create_access_token
 
 
@@ -47,6 +48,8 @@ class ExpensesApiTests(unittest.IsolatedAsyncioTestCase):
         self.providers.insert_one(self.provider)
         self.providers.insert_one(self.other_provider)
         self.token = self.token_for(self.writer)
+        cash_service.open_journal(CashOpening(
+            operacionId=uuid4(), montoApertura=0), self.writer)
 
     def token_for(self, user):
         return create_access_token({"sub": user["username"], "local": user["local"]},

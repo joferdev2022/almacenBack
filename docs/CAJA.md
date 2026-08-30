@@ -257,7 +257,10 @@ Si existe una jornada abierta del mismo local, otra apertura se rechaza.
 La primera apertura marca inicioControl de forma atómica.
 No recorre ni importa ventas o gastos anteriores.
 
-Después de esa apertura, las nuevas operaciones en efectivo requieren jornada abierta.
+Toda operación nueva en efectivo requiere una jornada abierta, incluso cuando todavía no existen
+cash_registers ni cash_journals. Borrar las colecciones de Caja no desactiva esta regla: el backend
+vuelve a crear el registro base, pero rechaza la venta o gasto hasta que se abra una jornada.
+inicioControl conserva el límite de auditoría histórica y no funciona como interruptor de seguridad.
 No se impiden pagos no efectivos ni operaciones pendientes.
 Cobrar ahora una deuda antigua o pagar ahora un gasto pendiente antiguo sí es una nueva operación de dinero.
 La fecha elegida del pago no inserta movimientos en jornadas históricas: el movimiento corresponde a la jornada abierta durante su registro.
@@ -306,7 +309,7 @@ Las operaciones previas al inicio del control no generan movimientos retroactivo
 
 ## 19. Pruebas realizadas
 
-- **54 pruebas backend aprobadas**: reglas, API, permisos, locales, fechas, importes, reintentos, rollback, edición, anulaciones, reportes y los 15 casos solicitados.
+- **56 pruebas backend aprobadas**: reglas, API, permisos, locales, fechas, importes, reintentos, rollback, edición, anulaciones, reportes y los 15 casos solicitados.
 - **41 pruebas Angular aprobadas**: Gastos, Caja, créditos, filtros, peticiones HTTP, doble envío, versión de cierre, errores y detalle de métodos.
 - **MongoDB real**: flujo completo hasta esperado 300 / contado 295 / fondo 200; aperturas simultáneas; venta repetida simultáneamente; rollback después de stock y movimiento; anulación/edición; cierre concurrente con movimiento.
 - Las pruebas reales usaron únicamente colecciones temporales codex_cash_test_* dentro de almacen, eliminadas al terminar. No escribieron ventas, gastos, stock ni jornadas operativas reales.

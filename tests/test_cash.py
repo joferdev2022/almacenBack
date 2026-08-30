@@ -85,8 +85,8 @@ class CashTests(unittest.IsolatedAsyncioTestCase):
 
     def test_opening_and_activation_without_backfill(self):
         self.assertIsNone(service.current_cash(self.user)["caja"])
-        self.assertIsNone(service.transaction(lambda session: service.require_cash_for_operation(self.user, session)))
-        self.assertIsNone(self.registers.documents[0]["inicioControl"])
+        self.assert_http(409, lambda: service.transaction(
+            lambda session: service.require_cash_for_operation(self.user, session)))
         journal = self.opened()
         self.assertEqual(journal["resumen"]["saldoEsperado"], 500)
         self.assertEqual(journal["usuarioAperturaId"], str(self.user["_id"]))
@@ -119,11 +119,12 @@ class CashTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(next_journal["diferenciaApertura"], -10)
         self.assertEqual(service.get_journal(journal["id"], self.user)["fondoSiguiente"], 200)
 
-    def test_cash_required_only_after_activation(self):
+    def test_cash_required_before_first_opening_and_after_close(self):
+        self.assert_http(409, lambda: service.transaction(lambda s: service.require_cash_for_operation(self.user, s)))
+        self.assert_http(409, lambda: service.transaction(lambda s: service.require_cash_for_operation(self.foreign, s)))
         journal = self.opened()
         service.close_journal(journal["id"], self.closing(journal), self.user)
         self.assert_http(409, lambda: service.transaction(lambda s: service.require_cash_for_operation(self.user, s)))
-        self.assertIsNone(service.transaction(lambda s: service.require_cash_for_operation(self.foreign, s)))
 
     def test_open_is_idempotent_but_conflicting_payload_is_rejected(self):
         request = self.opening()
@@ -316,6 +317,25 @@ class CashTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.balance(journal), 500)
         self.assertEqual(self.movements.documents, [])
 
+    def test_empty_cash_collections_still_reject_cash_sale_and_expense(self):
+        self.assertEqual(self.registers.documents, [])
+        self.assertEqual(self.journals.documents, [])
+        stock = self.db.productsDb.documents[0]["cantidadEnStock"]
+        with self.assertRaises(HTTPException) as sale_error:
+            self.create_sale()
+        self.assertEqual(sale_error.exception.status_code, 409)
+        self.assertEqual(sale_error.exception.detail, service.NO_OPEN_CASH)
+        with self.assertRaises(HTTPException) as expense_error:
+            self.create_expense()
+        self.assertEqual(expense_error.exception.status_code, 409)
+        self.assertEqual(expense_error.exception.detail, service.NO_OPEN_CASH)
+        self.assertEqual(self.db.salesDb.documents, [])
+        self.assertEqual(self.db.expensesDb.documents, [])
+        self.assertEqual(self.db.productsDb.documents[0]["cantidadEnStock"], stock)
+        self.assertEqual(self.movements.documents, [])
+        self.create_sale(method="yape")
+        self.create_expense(method="TRANSFERENCIA")
+
     def test_missing_open_cash_rolls_back_sale_expense_and_payment(self):
         journal = self.opened()
         credit = self.create_sale(state="credito", method=None)
@@ -413,7 +433,7 @@ class CashTests(unittest.IsolatedAsyncioTestCase):
 
     def test_old_pending_operations_only_affect_cash_when_paid_now(self):
         old_sale = self.create_sale(state="credito", method=None)
-        old_paid = self.create_sale()
+        old_paid = self.create_sale(method="yape")
         old_expense = self.create_expense(state="PENDIENTE", method=None)
         journal = self.opened()
         self.assertEqual(self.balance(journal), 500)

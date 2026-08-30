@@ -92,11 +92,12 @@ def lock_open_journal(register, user, session, journal_id=None, expected_version
 
 
 def require_cash_for_operation(user, session):
-    """La primera apertura activa el control: no carga operaciones anteriores."""
-    register = touch_register(user, session)
-    if register.get("inicioControl") is None:
-        return None
-    return lock_open_journal(register, user, session)
+    """Toda nueva operación en efectivo exige una jornada abierta.
+
+    inicioControl delimita la auditoría histórica, pero no desactiva esta regla
+    cuando las colecciones de Caja están vacías.
+    """
+    return lock_open_journal(touch_register(user, session), user, session)
 
 
 def _check_fingerprint(document, field, expected):
