@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
-from app.routes import expenses_route, cash_route
+from app.routes import expenses_route, cash_route, reports_route
 from app.services.cash_service import ensure_indexes as ensure_cash_indexes
 from app.routes import authLiquor_route, dashboardLiquor_route, expensesLiquor_route, products_route, productsLiquor_route, sales_route, dashboard_route, auth_route, salesLiquor_route, seller_route, supplier_route
 
@@ -36,6 +36,7 @@ async def read_root():
 app.include_router(auth_route.router, prefix='/api')
 app.include_router(expenses_route.router, prefix='/api')
 app.include_router(cash_route.router, prefix='/api')
+app.include_router(reports_route.router, prefix='/api')
 app.include_router(authLiquor_route.router, prefix='/api')
 app.include_router(products_route.router, prefix='/api')
 app.include_router(productsLiquor_route.router, prefix='/api')
