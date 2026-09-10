@@ -57,6 +57,10 @@ def matches(document, query):
                     valid = any(actual in value for actual in actuals)
                 elif operation == "$gte":
                     valid = any(actual is not None and comparable(actual) >= comparable(value) for actual in actuals)
+                elif operation == "$gt":
+                    valid = any(actual is not None and comparable(actual) > comparable(value) for actual in actuals)
+                elif operation == "$lte":
+                    valid = any(actual is not None and comparable(actual) <= comparable(value) for actual in actuals)
                 elif operation == "$lt":
                     valid = any(actual is not None and comparable(actual) < comparable(value) for actual in actuals)
                 else:
@@ -136,11 +140,22 @@ class Collection:
         return types.SimpleNamespace(inserted_id=document["_id"])
 
     def _update(self, document, update):
-        document.update(deepcopy(update.get("$set", {})))
+        def parent_and_key(path):
+            parts = path.split(".")
+            parent = document
+            for part in parts[:-1]:
+                parent = parent.setdefault(part, {})
+            return parent, parts[-1]
+
+        for key, value in update.get("$set", {}).items():
+            parent, final_key = parent_and_key(key)
+            parent[final_key] = deepcopy(value)
         for key, value in update.get("$inc", {}).items():
-            document[key] = document.get(key, 0) + value
+            parent, final_key = parent_and_key(key)
+            parent[final_key] = parent.get(final_key, 0) + value
         for key, value in update.get("$push", {}).items():
-            document.setdefault(key, []).append(deepcopy(value))
+            parent, final_key = parent_and_key(key)
+            parent.setdefault(final_key, []).append(deepcopy(value))
 
     def find_one_and_update(self, query, update, upsert=False, **kwargs):
         for document in self.documents:
@@ -168,6 +183,10 @@ class Collection:
                 self.documents.remove(doc)
                 return deepcopy(doc)
         return None
+
+    def delete_one(self, query, **kwargs):
+        deleted = self.find_one_and_delete(query, **kwargs)
+        return types.SimpleNamespace(deleted_count=int(deleted is not None))
 
     def aggregate(self, pipeline, **kwargs):
         rows = self.find(pipeline[0]["$match"])
@@ -220,7 +239,10 @@ class MemoryDatabase:
     def __init__(self):
         names = {"authDb": "auth", "sellersDb": "salenMan", "providersDb": "providers", "expensesDb": "expenses",
                  "salesDb": "sales", "productsDb": "products", "cashRegistersDb": "cash_registers",
-                 "cashJournalsDb": "cash_journals", "cashMovementsDb": "cash_movements"}
+                 "cashJournalsDb": "cash_journals", "cashMovementsDb": "cash_movements",
+                 "auth_liquorDb": "auth_liquor", "products_liquorDb": "products_liquor",
+                 "sales_liquorDb": "sales_liquor", "providers_liquorDb": "providers_liquor",
+                 "expenses_liquorDb": "expenses_liquor"}
         for attr, name in names.items():
             setattr(self, attr, Collection(name))
         self.client = MemoryClient([getattr(self, attr) for attr in names])

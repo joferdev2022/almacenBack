@@ -1,289 +1,295 @@
-from bson.objectid import ObjectId
-from fastapi import HTTPException
-from datetime import datetime, timedelta, timezone
+from copy import deepcopy
+from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from app.db.mongo import sales_liquorDb, products_liquorDb
-from ..utils.helpers_liquor import sale_helper
+from bson import ObjectId
+from fastapi import HTTPException
+
+from app.db.mongo import products_liquorDb, sales_liquorDb
+from app.utils.helpers_liquor import sale_helper
+
+
+LIMA = ZoneInfo("America/Lima")
+UTC = ZoneInfo("UTC")
+
+
+def _object_id(value: str, label: str):
+    if not ObjectId.is_valid(value):
+        raise HTTPException(status_code=400, detail=f"El ID de {label} no es válido.")
+    return ObjectId(value)
+
+
+def _money(value, label: str):
+    try:
+        amount = round(float(value), 2)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=f"{label} no es válido.") from exc
+    if amount < 0:
+        raise HTTPException(status_code=422, detail=f"{label} no puede ser negativo.")
+    return amount
+
+
+def _parse_datetime(value, label: str):
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=f"{label} no es válida.") from exc
+    if value is None:
+        return datetime.now(timezone.utc)
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=LIMA)
+    return value.astimezone(UTC)
+
+
+def _parse_due_date(value):
+    if isinstance(value, datetime):
+        due = value
+    else:
+        if isinstance(value, str):
+            try:
+                value = date.fromisoformat(value[:10])
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail="La fecha de vencimiento no es válida.") from exc
+        if not isinstance(value, date):
+            raise HTTPException(status_code=422, detail="La fecha de vencimiento es obligatoria.")
+        due = datetime.combine(value, time.max, tzinfo=LIMA)
+    if due.tzinfo is None:
+        due = due.replace(tzinfo=LIMA)
+    return due.astimezone(UTC)
 
 
 async def retrieve_sales(page: int, xpage: int, local: int):
-    total_sales = sales_liquorDb.count_documents({"local": local})
+    if page < 1 or xpage < 1:
+        raise HTTPException(status_code=400, detail="Parámetros de paginación inválidos.")
 
-    if page < 1 or xpage < 1 or (page - 1) * xpage >= total_sales:
-        raise HTTPException(
-            status_code=400,
-            detail="Parámetros de paginación inválidos."
-        )
-
-    skip_sales = (page - 1) * xpage
-
+    query = {"local": local}
+    total = sales_liquorDb.count_documents(query)
     sales = [
         sale_helper(sale)
-        for sale in sales_liquorDb.find({"local": local})
-                                 .sort("fechaVenta", -1)
-                                 .skip(skip_sales)
-                                 .limit(xpage)
+        for sale in sales_liquorDb.find(query)
+        .sort([("fechaVenta", -1), ("_id", -1)])
+        .skip((page - 1) * xpage)
+        .limit(xpage)
     ]
-
-    return {
-        "total": total_sales,
-        "sales": sales,
-        "page": page,
-        "xpage": xpage,
-    }
+    return {"total": total, "sales": sales, "page": page, "xpage": xpage}
 
 
-async def get_sales_with_credit_state(page: int, xpage: int, local: int):
-        sales = []
-        totalSales = sales_liquorDb.count_documents({"local": local, "estado": "credito"})
-        
-        if totalSales == 0:
-            return {"total": totalSales, "sales": sales, "page": page, "xpage": xpage}
-        
-        if page < 1 or xpage < 1 or (page - 1) * xpage >= totalSales:
-            raise HTTPException(status_code=400, detail="Parámetros de paginación inválidos.")
-        skipSales = (page - 1) * xpage
-        
-        for sale in sales_liquorDb.find({"local": local, "estado": "credito"}).skip(skipSales).limit(xpage):
-            sales.append(sale_helper(sale))
-        return {"total": totalSales, "sales": sales, "page": page, "xpage": xpage}
+def _prepare_sale(sale_data: dict):
+    result = deepcopy(sale_data)
+    result.pop("_id", None)
+    result.pop("id", None)
+    result["_id"] = ObjectId()
+    result["fechaVenta"] = _parse_datetime(result.get("fechaVenta"), "La fecha de venta")
+    result["created_at"] = datetime.now(timezone.utc)
+
+    calculated_total = 0.0
+    for item in result.get("productos", []):
+        quantity = int(item.get("cantidad", 0))
+        equivalence = int(item.get("equivalenciaUnidades") or 1)
+        purchase_price = _money(item.get("precioCompraUnitario", 0), "El precio de compra")
+        sale_price = _money(item.get("precioVentaUnitario", 0), "El precio de venta")
+        if quantity <= 0 or equivalence <= 0 or sale_price <= 0:
+            raise HTTPException(status_code=422, detail="Los productos contienen valores inválidos.")
+
+        item["unidadesVendidas"] = quantity * equivalence
+        item["subtotalCosto"] = round(quantity * equivalence * purchase_price, 2)
+        item["subtotalVenta"] = round(quantity * sale_price, 2)
+        calculated_total += item["subtotalVenta"]
+
+    calculated_total = round(calculated_total, 2)
+    payment = result.setdefault("pago", {})
+    received_total = _money(payment.get("total", 0), "El total")
+    if calculated_total <= 0 or received_total != calculated_total:
+        raise HTTPException(
+            status_code=422,
+            detail="El total debe coincidir con los productos de la venta.",
+        )
+
+    if result.get("condicionPago") == "credito":
+        customer = result.get("clienteCredito") or {}
+        name = str(customer.get("nombre") or "").strip()
+        if len(name) < 2:
+            raise HTTPException(
+                status_code=422,
+                detail="El nombre del cliente es obligatorio para una venta a crédito.",
+            )
+        result["clienteCredito"] = {
+            "nombre": name,
+            "telefono": str(customer.get("telefono") or "").strip() or None,
+        }
+        due_date = _parse_due_date(result.get("fechaVencimiento"))
+        if due_date.astimezone(LIMA).date() < result["fechaVenta"].astimezone(LIMA).date():
+            raise HTTPException(
+                status_code=422,
+                detail="La fecha de vencimiento no puede ser anterior a la venta.",
+            )
+        result["fechaVencimiento"] = due_date
+        result["observacionesCredito"] = (
+            str(result.get("observacionesCredito") or "").strip() or None
+        )
+        result["estado"] = "credito"
+        payment.update(
+            tipo="credito",
+            total=calculated_total,
+            pagado=0.0,
+            saldoPendiente=calculated_total,
+            estadoPago="pendiente",
+            pagos=[],
+        )
+    else:
+        method = str(payment.get("tipo") or "").strip().lower()
+        if method in ("", "credito"):
+            raise HTTPException(status_code=422, detail="Selecciona un método de pago válido.")
+        result["condicionPago"] = "contado"
+        result["clienteCredito"] = None
+        result["fechaVencimiento"] = None
+        result["observacionesCredito"] = None
+        result["estado"] = "cancelado"
+        payment.update(
+            total=calculated_total,
+            pagado=calculated_total,
+            saldoPendiente=0.0,
+            estadoPago="pagado",
+            pagos=[
+                {
+                    "id": str(ObjectId()),
+                    "monto": calculated_total,
+                    "fecha": result["fechaVenta"],
+                    "metodo": method,
+                    "referencia": None,
+                    "observaciones": None,
+                }
+            ],
+        )
+
+    return result
+
+
+def _decrease_stock(sale_data: dict):
+    quantities = {}
+    for item in sale_data.get("productos", []):
+        product_id = _object_id(item.get("productoId", ""), "producto")
+        quantities[product_id] = quantities.get(product_id, 0) + item["unidadesVendidas"]
+
+    applied = []
+    for product_id, units in quantities.items():
+        update = products_liquorDb.update_one(
+            {
+                "_id": product_id,
+                "local": sale_data["local"],
+                "cantidadEnStock": {"$gte": units},
+            },
+            {"$inc": {"cantidadEnStock": -units}},
+        )
+        if not update.matched_count:
+            for previous_id, previous_units in applied:
+                products_liquorDb.update_one(
+                    {"_id": previous_id},
+                    {"$inc": {"cantidadEnStock": previous_units}},
+                )
+            raise HTTPException(
+                status_code=409,
+                detail="Un producto no pertenece al local o no tiene stock suficiente.",
+            )
+        applied.append((product_id, units))
+    return applied
 
 
 async def add_sale(sale_data: dict) -> dict:
-    # assign new id
-    sale_data["_id"] = ObjectId()
-
-    # parse or set fechaVenta
-    if "fechaVenta" in sale_data and sale_data["fechaVenta"]:
-        if isinstance(sale_data["fechaVenta"], str):
-            try:
-                sale_data["fechaVenta"] = datetime.fromisoformat(sale_data["fechaVenta"].replace("Z", "+00:00"))
-            except Exception:
-                sale_data["fechaVenta"] = datetime.now(timezone.utc)
-    else:
-        sale_data["fechaVenta"] = datetime.now(timezone.utc)
-
-    # calcular campos derivados por producto
-    for item in sale_data.get("productos", []):
-        cantidad = item.get("cantidad", 0)
-        equivalencia = item.get("equivalenciaUnidades") or 1
-        precio_compra = item.get("precioCompraUnitario", 0)
-        precio_venta = item.get("precioVentaUnitario", 0)
-
-        item["unidadesVendidas"] = cantidad * equivalencia
-        item["subtotalCosto"] = cantidad * equivalencia * precio_compra
-        item["subtotalVenta"] = cantidad * precio_venta
-
-    # procesar pago: parsear fechas y calcular saldoPendiente
-    if "pago" in sale_data and isinstance(sale_data["pago"], dict):
-        pago = sale_data["pago"]
-
-        # calcular saldoPendiente
-        pago["saldoPendiente"] = pago.get("total", 0) - pago.get("pagado", 0)
-
-        # parsear fechas dentro de pago.pagos
-        for p in pago.get("pagos", []):
-            fecha = p.get("fecha")
-            if isinstance(fecha, str):
-                try:
-                    p["fecha"] = datetime.fromisoformat(fecha.replace("Z", "+00:00"))
-                except Exception:
-                    p["fecha"] = None
-
-    # insert sale
-    sale = sales_liquorDb.insert_one(sale_data)
-    new_sale = sales_liquorDb.find_one({"_id": sale.inserted_id})
-
-    # update product stock; account for equivalenciaUnidades when present
-    for item in sale_data.get("productos", []):
-        producto_id = item.get("productoId")
-        unidades = item.get("unidadesVendidas", 0)
-
-        try:
-            producto = products_liquorDb.find_one({"_id": ObjectId(producto_id)})
-        except Exception:
-            producto = None
-
-        if producto:
-            nuevo_stock = producto.get("cantidadEnStock", 0) - unidades
+    sale = _prepare_sale(sale_data)
+    applied_stock = _decrease_stock(sale)
+    try:
+        inserted = sales_liquorDb.insert_one(sale)
+    except Exception:
+        for product_id, units in applied_stock:
             products_liquorDb.update_one(
-                {"_id": ObjectId(producto_id)},
-                {"$set": {"cantidadEnStock": nuevo_stock}}
+                {"_id": product_id},
+                {"$inc": {"cantidadEnStock": units}},
             )
-
-    return sale_helper(new_sale)
-
-
-async def update_sale_by_id(sale_id: str, new_data: dict):
-    if "_id" in new_data:
-        del new_data["_id"]
-    sale = sales_liquorDb.find_one({"_id": ObjectId(sale_id)})
-    print("esta imprimiendo la venta")
-    print(sale)
-    if sale:
-        sales_liquorDb.update_one(
-            {"_id": ObjectId(sale_id)}, {"$set": new_data}
-        )
-        return True
-    return False
+        raise
+    return sale_helper(sales_liquorDb.find_one({"_id": inserted.inserted_id}))
 
 
 async def delete_sale_by_id(sale_id: str):
-    sale = sales_liquorDb.find_one({"_id": ObjectId(sale_id)})
+    object_id = _object_id(sale_id, "venta")
+    sale = sales_liquorDb.find_one({"_id": object_id})
     if not sale:
-        return False
-    
-    for item in sale["productos"]:
-        producto_id = item["productoId"]
-        unidades_vendidas = item.get("unidadesVendidas", item["cantidad"])
-        producto = products_liquorDb.find_one({"_id": ObjectId(producto_id)})
-        if producto:
-            nuevo_stock = producto["cantidadEnStock"] + unidades_vendidas
-            products_liquorDb.update_one(
-                {"_id": ObjectId(producto_id)},
-                {"$set": {"cantidadEnStock": nuevo_stock}}
-            )
-    filter = {"_id": ObjectId(sale_id)}
-    
-    result =  sales_liquorDb.delete_one(filter)
-    if result.deleted_count == 1:
-        # user_updated =  Items.find_one({"_id": user_id})
-        return True
-    return False
+        raise HTTPException(status_code=404, detail="Venta no encontrada.")
 
-
-async def update_state_by_id(sale_id: str, new_state: str):
-    
-    tz = ZoneInfo("America/Lima")
-    # now_local = datetime.now(tz)
-    filter = {"_id": ObjectId(sale_id)}
-    
-    sale = sales_liquorDb.find_one(filter)
-    
-    if not sale:
-        return False
-    
-    update_data = {"estado": new_state}
-
-    # result =  sales_liquorDb.update_one(filter, {"$set": {"estado": new_state}})
-    if sale.get("estado") == "credito" and new_state == "cancelado":
-        update_data["fechaCancelacion"] = datetime.now(tz)
-        # update_data["fechaCancelacion"] = datetime.now(timezone.utc)
-    
-    result = sales_liquorDb.update_one(filter, {"$set": update_data})
-    if result.modified_count == 1:
-        return True
-    return False
-
-
-async def update_payment_by_id(sale_id: str, new_payment: float):
-    tz = ZoneInfo("America/Lima")
-    filter = {"_id": ObjectId(sale_id)}
-    
-    sale = sales_liquorDb.find_one(filter)
-    
-    if not sale:
-        return False
-    
-    pago = sale.get("pago", {})
-    total_venta = pago.get("total", 0)
-    pagado_anterior = pago.get("pagado", 0)
-    
-    # new_payment es el monto del nuevo abono
-    nuevo_pagado = pagado_anterior + new_payment
-    nuevo_saldo = total_venta - nuevo_pagado
-    
-    payment_record = {
-        "monto": new_payment,
-        "fecha": datetime.now(tz),
-        "metodo": "efectivo"
-    }
-    
-    update_data = {
-        "pago.pagado": nuevo_pagado,
-        "pago.saldoPendiente": nuevo_saldo
-    }
-    
-    result = sales_liquorDb.update_one(
-        filter, 
-        {
-            "$set": update_data,
-            "$push": {"pago.pagos": payment_record}
-        }
+    is_credit = sale.get("condicionPago") == "credito" or (
+        sale.get("estado") == "credito" and "condicionPago" not in sale
     )
-    
-    if result.modified_count == 1:
-        return True
-    return False
+    if is_credit and sale.get("pago", {}).get("pagos"):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "No se puede eliminar una venta a crédito que ya tiene abonos. "
+                "Debe conservarse su historial de pagos."
+            ),
+        )
+
+    quantities = {}
+    for item in sale.get("productos", []):
+        product_id = _object_id(item.get("productoId", ""), "producto")
+        units = item.get("unidadesVendidas", item.get("cantidad", 0))
+        quantities[product_id] = quantities.get(product_id, 0) + units
+
+    for product_id, units in quantities.items():
+        products_liquorDb.update_one(
+            {"_id": product_id},
+            {"$inc": {"cantidadEnStock": units}},
+        )
+    sales_liquorDb.delete_one({"_id": object_id})
+    return sale_helper(sale)
 
 
 async def get_daily_Sales_summary(local: int):
-    tz = ZoneInfo("America/Lima")
-    now_local = datetime.now(tz)
-    # today = datetime.now(timezone.utc)
-    
-    # start_day = datetime(today.year, today.month, today.day, tzinfo=timezone.utc)
-    # end_day = start_day + timedelta(days=1)
-    
-    start_day_local = datetime(now_local.year, now_local.month, now_local.day, tzinfo=tz)
-    end_day_local = start_day_local + timedelta(days=1)
-    
-    start_day_utc = start_day_local.astimezone(ZoneInfo("UTC"))
-    end_day_utc = end_day_local.astimezone(ZoneInfo("UTC"))
+    now = datetime.now(LIMA)
+    start_local = datetime(now.year, now.month, now.day, tzinfo=LIMA)
+    end_local = start_local + timedelta(days=1)
+    start_utc = start_local.astimezone(UTC)
+    end_utc = end_local.astimezone(UTC)
 
+    total_sales = 0.0
+    net_profit = 0.0
+    sale_count = 0
+    credit_payments = 0.0
 
+    for sale in sales_liquorDb.find({"local": local}):
+        sale_date = sale.get("fechaVenta")
+        if isinstance(sale_date, datetime):
+            comparable_sale_date = (
+                sale_date if sale_date.tzinfo else sale_date.replace(tzinfo=timezone.utc)
+            )
+            if start_utc <= comparable_sale_date < end_utc:
+                sale_count += 1
+                net_profit += sum(
+                    item.get("subtotalVenta", 0) - item.get("subtotalCosto", 0)
+                    for item in sale.get("productos", [])
+                )
 
-    sales_cursor = sales_liquorDb.find({
-        "local": local,
-        "estado": "cancelado",
-        "$or": [
-            {"fechaVenta": {"$gte": start_day_utc, "$lt": end_day_utc}},
-            {"fechaCancelacion": {"$gte": start_day_utc, "$lt": end_day_utc}}
-        ]
-        # "fechaVenta": {"$gte": start_day_utc, "$lt": end_day_utc}
-    })
-    
-    total_ventas = 0
-    ganancia_neta = 0
-    numero_ventas = 0
-    pagos_parciales_hoy = 0
-    
-    for sale in sales_cursor:
-        pago = sale.get("pago", {})
-        total_ventas += pago.get("total", 0)
-        for item in sale.get("productos", []):
-            subtotal_venta = item.get("subtotalVenta", 0)
-            subtotal_costo = item.get("subtotalCosto", 0)
-            ganancia_neta += subtotal_venta - subtotal_costo
-        numero_ventas += 1
-    
-    all_sales_cursor = sales_liquorDb.find({
-        "local": local,
-        "estado": "credito",
-        "pago.pagos": {"$exists": True}
-    })
-    
-    
-    for sale in all_sales_cursor:
-        pago_data = sale.get("pago", {})
-        for pago_entry in pago_data.get("pagos", []):
-            fecha_pago = pago_entry.get("fecha")
-            if fecha_pago:
-                # Convertir a UTC si es necesario
-                if hasattr(fecha_pago, 'astimezone'):
-                    fecha_pago_utc = fecha_pago.astimezone(ZoneInfo("UTC"))
+        is_credit = sale.get("condicionPago") == "credito" or (
+            sale.get("estado") == "credito" and "condicionPago" not in sale
+        )
+        for payment in sale.get("pago", {}).get("pagos", []):
+            payment_date = payment.get("fecha")
+            if not isinstance(payment_date, datetime):
+                continue
+            comparable_payment_date = (
+                payment_date
+                if payment_date.tzinfo
+                else payment_date.replace(tzinfo=timezone.utc)
+            )
+            if start_utc <= comparable_payment_date < end_utc:
+                if is_credit:
+                    credit_payments += payment.get("monto", 0)
                 else:
-                    fecha_pago_utc = fecha_pago
-                
-                if start_day_utc <= fecha_pago_utc < end_day_utc:
-                    pagos_parciales_hoy += pago_entry.get("monto", 0)
-    
-    
-    print(pagos_parciales_hoy)
+                    total_sales += payment.get("monto", 0)
+
     return {
-        "ganancia_neta": ganancia_neta,
-        "ventas_totales": total_ventas,
-        "numero_ventas": numero_ventas,
-        "pagos_parciales_hoy": pagos_parciales_hoy,
+        "ganancia_neta": round(net_profit, 2),
+        "ventas_totales": round(total_sales, 2),
+        "numero_ventas": sale_count,
+        "pagos_parciales_hoy": round(credit_payments, 2),
     }

@@ -6,13 +6,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import settings
 from app.routes import expenses_route, cash_route, reports_route
 from app.services.cash_service import ensure_indexes as ensure_cash_indexes
-from app.routes import authLiquor_route, dashboardLiquor_route, expensesLiquor_route, products_route, productsLiquor_route, sales_route, dashboard_route, auth_route, salesLiquor_route, seller_route, supplier_route
+from app.routes import authLiquor_route, creditsLiquor_route, dashboardLiquor_route, expensesLiquor_route, products_route, productsLiquor_route, sales_route, dashboard_route, auth_route, salesLiquor_route, seller_route, supplier_route
+from app.services.creditsLiquor_service import ensure_credit_liquor_indexes
 
 app = FastAPI()
 
 @app.on_event("startup")
 def initialize_cash_indexes():
     ensure_cash_indexes()
+    ensure_credit_liquor_indexes()
 
 
 origins = ["*"]
@@ -44,6 +46,7 @@ app.include_router(seller_route.router, prefix='/api')
 app.include_router(supplier_route.router, prefix='/api')
 app.include_router(sales_route.router, prefix='/api')
 app.include_router(salesLiquor_route.router, prefix='/api')
+app.include_router(creditsLiquor_route.router, prefix='/api')
 app.include_router(dashboard_route.router, prefix='/api')
 app.include_router(dashboardLiquor_route.router, prefix='/api')
 app.include_router(expensesLiquor_route.router, prefix='/api')

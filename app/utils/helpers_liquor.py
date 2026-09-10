@@ -68,22 +68,48 @@ def sale_helper(sale: dict) -> dict:
 
     sale["id"] = str(sale.pop("_id"))
 
-    # Fecha de venta
-    if isinstance(sale.get("fechaVenta"), datetime):
-        sale["fechaVenta"] = (
-            sale["fechaVenta"]
-            .astimezone(ZoneInfo("America/Lima"))
-            .isoformat()
-        )
+    # Fechas principales de la venta y del crédito.
+    for field in (
+        "fechaVenta",
+        "fechaVencimiento",
+        "fechaCancelacion",
+        "created_at",
+        "updated_at",
+    ):
+        value = sale.get(field)
+        if isinstance(value, datetime):
+            if value.tzinfo is None:
+                value = value.replace(tzinfo=ZoneInfo("UTC"))
+            sale[field] = value.astimezone(ZoneInfo("America/Lima")).isoformat()
 
     # Fechas de los pagos
     for pago in sale.get("pago", {}).get("pagos", []):
         if isinstance(pago.get("fecha"), datetime):
-            pago["fecha"] = (
-                pago["fecha"]
-                .astimezone(ZoneInfo("America/Lima"))
-                .isoformat()
-            )
+            payment_date = pago["fecha"]
+            if payment_date.tzinfo is None:
+                payment_date = payment_date.replace(tzinfo=ZoneInfo("UTC"))
+            pago["fecha"] = payment_date.astimezone(ZoneInfo("America/Lima")).isoformat()
+
+    payment = sale.get("pago", {})
+    total = float(payment.get("total") or 0)
+    paid = float(payment.get("pagado") or 0)
+    balance = float(payment.get("saldoPendiente", max(total - paid, 0)) or 0)
+    payment_state = payment.get("estadoPago")
+    if not payment_state:
+        payment_state = "pagado" if balance <= 0 else ("parcial" if paid > 0 else "pendiente")
+        payment["estadoPago"] = payment_state
+
+    sale["estadoCobro"] = payment_state
+    due_date = sale.get("fechaVencimiento")
+    if balance > 0 and due_date:
+        try:
+            comparable_due = datetime.fromisoformat(str(due_date).replace("Z", "+00:00"))
+            if comparable_due.tzinfo is None:
+                comparable_due = comparable_due.replace(tzinfo=ZoneInfo("America/Lima"))
+            if comparable_due < datetime.now(ZoneInfo("America/Lima")):
+                sale["estadoCobro"] = "vencido"
+        except (TypeError, ValueError):
+            pass
 
     return sale
 
