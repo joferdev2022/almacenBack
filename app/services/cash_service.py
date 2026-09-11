@@ -11,9 +11,11 @@ from pymongo.write_concern import WriteConcern
 
 from app.db.mongo import client, cashRegistersDb, cashJournalsDb, cashMovementsDb, salesDb, expensesDb
 from app.models.cash_model import CashClosing, CashManualMovement, CashOpening
+from app.models.payment_model import is_cash, normalize_payment
 from app.utils.cash_helpers import ZERO, date_filter, fingerprint, money, object_id, serialize
 
-NO_OPEN_CASH = "No existe una caja abierta para registrar esta operación en efectivo."
+NO_OPEN_CASH = "No existe una caja abierta para registrar este pago u operación."
+PAYMENT_METHODS = ("EFECTIVO", "YAPE", "PLIN", "TRANSFERENCIA", "TARJETA", "OTRO")
 
 
 def ensure_indexes():
@@ -31,6 +33,8 @@ def ensure_indexes():
     cashMovementsDb.create_index([("local", 1), ("eventoId", 1)], unique=True, name="cash_unique_event")
     cashMovementsDb.create_index([("local", 1), ("jornadaId", 1), ("fecha", -1), ("_id", -1)], name="cash_journal_movements")
     cashMovementsDb.create_index([("local", 1), ("origenTipo", 1), ("origenId", 1)], name="cash_movement_source")
+    cashMovementsDb.create_index([("local", 1), ("jornadaId", 1), ("metodoPago", 1), ("fecha", -1)],
+        name="cash_journal_payment_method")
     for collection, name in ((salesDb, "sales"), (expensesDb, "expenses")):
         if collection.full_name != f"almacen.{name}":
             raise RuntimeError("La integración de Caja solo admite almacen.")
@@ -92,11 +96,7 @@ def lock_open_journal(register, user, session, journal_id=None, expected_version
 
 
 def require_cash_for_operation(user, session):
-    """Toda nueva operación en efectivo exige una jornada abierta.
-
-    inicioControl delimita la auditoría histórica, pero no desactiva esta regla
-    cuando las colecciones de Caja están vacías.
-    """
+    """Todo pago nuevo, efectivo o digital, exige una jornada abierta."""
     return lock_open_journal(touch_register(user, session), user, session)
 
 
@@ -106,40 +106,76 @@ def _check_fingerprint(document, field, expected):
 
 
 def append_movement(journal, user, session, *, event_id, kind, direction, amount,
-                    description, source_type="MANUAL", source_id=None, **details):
+                    description, source_type="MANUAL", source_id=None,
+                    payment_method="EFECTIVO", affects_cash=None, **details):
     """El llamador bloquea la jornada en la MISMA transacción."""
     value = money(amount)
     if value <= ZERO:
         raise HTTPException(422, "El movimiento debe ser mayor a cero.")
+    method = normalize_payment(payment_method)
+    if method is None:
+        raise HTTPException(422, "El método de pago es obligatorio.")
+    affects_cash = is_cash(method) if affects_cash is None else bool(affects_cash)
     now = _now()
     movement = {"_id": ObjectId(), "cajaId": journal["cajaId"], "jornadaId": journal["_id"],
                 "local": user["local"], "tipo": kind, "naturaleza": direction,
-                "monto": Decimal128(value), "fecha": now, "created_at": now,
-                "eventoId": event_id, "origenTipo": source_type, "origenId": source_id,
+                "monto": Decimal128(value), "metodoPago": method, "afectaEfectivo": affects_cash,
+                "fecha": now, "created_at": now, "eventoId": event_id,
+                "origenTipo": source_type, "origenId": source_id,
                 "descripcion": description, "usuarioId": user["_id"],
                 "usuarioNombre": user["username"], **details}
     cashMovementsDb.insert_one(movement, session=session)
     return movement
 
 
+def _group_count(value):
+    return int(value.to_decimal() if isinstance(value, Decimal128) else value)
+
+
 def journal_summary(journal, session=None):
     groups = cashMovementsDb.aggregate([
         {"$match": {"local": journal["local"], "jornadaId": journal["_id"]}},
-        {"$group": {"_id": {"tipo": "$tipo", "naturaleza": "$naturaleza"}, "monto": {"$sum": "$monto"}}}
+        {"$group": {"_id": {"tipo": "$tipo", "naturaleza": "$naturaleza",
+            "metodoPago": "$metodoPago", "afectaEfectivo": "$afectaEfectivo"},
+            "monto": {"$sum": "$monto"}, "operaciones": {"$sum": 1}}}
     ], session=session)
     summary = {key: ZERO for key in ("ventasEfectivo", "gastosEfectivo", "otrosIngresos", "retiros",
         "ajustesEntrada", "ajustesSalida", "retiroCierre", "ingresos", "egresos")}
+    summary["metodos"] = {method: {"ingresos": ZERO, "egresos": ZERO, "neto": ZERO, "operaciones": 0}
+                          for method in PAYMENT_METHODS}
+    summary["noEfectivo"] = {"ingresos": ZERO, "egresos": ZERO, "neto": ZERO, "operaciones": 0}
+    cash_keys = {"VENTA_EFECTIVO": "ventasEfectivo", "GASTO_EFECTIVO": "gastosEfectivo",
+                 "INGRESO_MANUAL": "otrosIngresos", "RETIRO": "retiros",
+                 "AJUSTE_ENTRADA": "ajustesEntrada", "AJUSTE_SALIDA": "ajustesSalida",
+                 "RETIRO_CIERRE": "retiroCierre"}
     for group in groups:
-        kind, direction = group["_id"]["tipo"], group["_id"]["naturaleza"]
-        amount = money(group["monto"])
-        key = {"VENTA_EFECTIVO": "ventasEfectivo", "GASTO_EFECTIVO": "gastosEfectivo",
-               "INGRESO_MANUAL": "otrosIngresos", "RETIRO": "retiros",
-               "AJUSTE_ENTRADA": "ajustesEntrada", "AJUSTE_SALIDA": "ajustesSalida",
-               "RETIRO_CIERRE": "retiroCierre"}[kind]
-        summary[key] += amount
-        # Contar primero y retirar después evita restar dos veces el retiro al cierre.
+        identity = group["_id"]
+        kind, direction = identity["tipo"], identity["naturaleza"]
+        amount, operations = money(group["monto"]), _group_count(group["operaciones"])
+        # Todo movimiento anterior a esta mejora era necesariamente efectivo.
+        method = identity.get("metodoPago") or "EFECTIVO"
+        if method not in summary["metodos"]:
+            method = "OTRO"
+        affects_cash = identity.get("afectaEfectivo")
+        if affects_cash is None:
+            affects_cash = method == "EFECTIVO"
         if kind != "RETIRO_CIERRE":
-            summary["ingresos" if direction == "INGRESO" else "egresos"] += amount
+            bucket = summary["metodos"][method]
+            bucket["ingresos" if direction == "INGRESO" else "egresos"] += amount
+            bucket["operaciones"] += operations
+        if affects_cash:
+            key = cash_keys.get(kind)
+            if key:
+                summary[key] += amount
+            if kind != "RETIRO_CIERRE":
+                summary["ingresos" if direction == "INGRESO" else "egresos"] += amount
+    for method, bucket in summary["metodos"].items():
+        bucket["neto"] = bucket["ingresos"] - bucket["egresos"]
+        if method != "EFECTIVO":
+            for key in ("ingresos", "egresos"):
+                summary["noEfectivo"][key] += bucket[key]
+            summary["noEfectivo"]["operaciones"] += bucket["operaciones"]
+    summary["noEfectivo"]["neto"] = summary["noEfectivo"]["ingresos"] - summary["noEfectivo"]["egresos"]
     summary["saldoEsperado"] = money(journal["montoApertura"]) + summary["ingresos"] - summary["egresos"]
     summary["saldoTrasRetiro"] = summary["saldoEsperado"] - summary["retiroCierre"]
     return summary
@@ -194,9 +230,12 @@ def manual_movement(journal_id, data: CashManualMovement, user, direction):
             return existing
         register = touch_register(user, session)
         journal = lock_open_journal(register, user, session, journal_id)
+        cash_method = is_cash(data.metodoPago)
         return append_movement(journal, user, session, event_id=event_id,
-            kind="INGRESO_MANUAL" if direction == "INGRESO" else "RETIRO", direction=direction,
-            amount=data.monto, description=data.motivo, observaciones=data.observaciones, huella=digest)
+            kind=("INGRESO_MANUAL" if direction == "INGRESO" else "RETIRO") if cash_method
+                 else ("INGRESO_NO_EFECTIVO" if direction == "INGRESO" else "EGRESO_NO_EFECTIVO"),
+            direction=direction, amount=data.monto, description=data.motivo,
+            payment_method=data.metodoPago, observaciones=data.observaciones, huella=digest)
     return serialize(transaction(write))
 
 
@@ -273,7 +312,7 @@ def history(user, page=1, xpage=10, fecha_desde=None, fecha_hasta=None, estado=N
 
 
 def movements(journal_id, user, page=1, xpage=10, fecha_desde=None, fecha_hasta=None,
-              tipo=None, naturaleza=None, origen_tipo=None):
+              tipo=None, naturaleza=None, origen_tipo=None, metodo_pago=None):
     journal_id = object_id(journal_id)
     query = {"local": user["local"], "jornadaId": journal_id}
     dates = date_filter(fecha_desde, fecha_hasta)
@@ -282,12 +321,20 @@ def movements(journal_id, user, page=1, xpage=10, fecha_desde=None, fecha_hasta=
     for key, value in (("tipo", tipo), ("naturaleza", naturaleza), ("origenTipo", origen_tipo)):
         if value:
             query[key] = value
+    if metodo_pago == "EFECTIVO":
+        query["$or"] = [{"metodoPago": "EFECTIVO"}, {"metodoPago": {"$exists": False}}]
+    elif metodo_pago:
+        query["metodoPago"] = metodo_pago
     def read(session):
         if not cashJournalsDb.find_one({"_id": journal_id, "local": user["local"]}, session=session):
             raise HTTPException(404, "No se encontró la jornada de caja.")
         total = cashMovementsDb.count_documents(query, session=session)
         rows = cashMovementsDb.find(query, session=session).sort([("fecha", -1), ("_id", -1)]).skip((page - 1) * xpage).limit(xpage)
         items = list(rows)
+        for row in items:
+            # Compatibilidad de lectura con movimientos físicos anteriores.
+            row.setdefault("metodoPago", "EFECTIVO")
+            row.setdefault("afectaEfectivo", True)
         for source_type, collection in (("VENTA", salesDb), ("GASTO", expensesDb)):
             ids = [row["origenId"] for row in items if row["origenTipo"] == source_type and row.get("origenId")]
             sources = {doc["_id"]: doc for doc in collection.find(

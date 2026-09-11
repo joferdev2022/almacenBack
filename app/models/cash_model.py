@@ -5,12 +5,15 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.models.payment_model import PaymentMethod
+
 Money = Annotated[Decimal, Field(ge=0, max_digits=12, decimal_places=2)]
 PositiveMoney = Annotated[Decimal, Field(gt=0, max_digits=12, decimal_places=2)]
 JournalState = Literal["ABIERTA", "CERRADA"]
 MovementDirection = Literal["INGRESO", "EGRESO"]
 MovementType = Literal[
-    "VENTA_EFECTIVO", "GASTO_EFECTIVO", "INGRESO_MANUAL", "RETIRO",
+    "VENTA_EFECTIVO", "GASTO_EFECTIVO", "VENTA_NO_EFECTIVO", "GASTO_NO_EFECTIVO",
+    "INGRESO_MANUAL", "RETIRO", "INGRESO_NO_EFECTIVO", "EGRESO_NO_EFECTIVO",
     "AJUSTE_ENTRADA", "AJUSTE_SALIDA", "RETIRO_CIERRE",
 ]
 SourceType = Literal["VENTA", "GASTO", "MANUAL", "CIERRE"]
@@ -29,6 +32,7 @@ class CashOpening(CashOperation):
 class CashManualMovement(CashOperation):
     monto: PositiveMoney
     motivo: str = Field(min_length=3, max_length=250)
+    metodoPago: PaymentMethod = "EFECTIVO"
     observaciones: Optional[str] = Field(default=None, max_length=1000)
 
 

@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.models.cash_model import (CashClosing, CashManualMovement, CashOpening,
     JournalState, MovementDirection, MovementType, SourceType, cash_response)
+from app.models.payment_model import PaymentMethod
 from app.services import cash_service as service
 from app.services.expenses_service import get_expense_user as get_current_user
 
@@ -38,8 +39,10 @@ def open_cash(data: CashOpening, user: dict = Depends(get_cash_writer)):
 def movements(id: str, page: int = Query(1, ge=1), xpage: int = Query(10, ge=1, le=100),
               fecha_desde: Optional[date] = None, fecha_hasta: Optional[date] = None,
               tipo: Optional[MovementType] = None, naturaleza: Optional[MovementDirection] = None,
-              origen_tipo: Optional[SourceType] = None, user: dict = Depends(get_current_user)):
-    return cash_response(service.movements(id, user, page, xpage, fecha_desde, fecha_hasta, tipo, naturaleza, origen_tipo))
+              origen_tipo: Optional[SourceType] = None, metodo_pago: Optional[PaymentMethod] = None,
+              user: dict = Depends(get_current_user)):
+    return cash_response(service.movements(id, user, page, xpage, fecha_desde, fecha_hasta,
+        tipo, naturaleza, origen_tipo, metodo_pago))
 
 
 @router.post("/{id}/income", status_code=201)

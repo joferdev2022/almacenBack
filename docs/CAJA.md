@@ -1,5 +1,5 @@
 # Caja de Almacén — implementación y verificación
-Fecha: 28/08/2026.
+Actualizado: 11/09/2026.
 
 Implementado en backend y Angular. Router registrado, índices verificados en MongoDB real.
 No se abrió una jornada operativa del usuario ni se generaron movimientos históricos.
@@ -19,12 +19,12 @@ La ruta antigua de licorería importa sale_model.py: ese archivo se conservó si
 
 ## 2. Diseño final
 
-Una **Caja principal por local**, jornadas de apertura/cierre y movimientos de efectivo inmutables.
+Una **Caja principal por local**, jornadas de apertura/cierre y movimientos inmutables para efectivo y medios no efectivos.
 No hay formularios duplicados para registrar ventas o gastos desde Caja.
 La integración se hace dentro de los servicios del backend, en la misma transacción que guarda la operación y, para Ventas, modifica stock.
 
 La jornada de Caja no es una sesión de login: cerrar el navegador, salir del sistema o vencer un JWT no cierra Caja.
-No se agregaron dependencias, frameworks visuales, bancos, contabilidad, cierre automático ni carga histórica.
+No se agregaron dependencias, frameworks visuales, integración bancaria, contabilidad, cierre automático ni carga histórica.
 
 ## 3. Colecciones y documentos
 
@@ -34,7 +34,7 @@ Exclusivamente en la base **almacen**:
 | --- | --- |
 | cash_registers | _id, local, codigo=PRINCIPAL, nombre, activa, inicioControl, version, created_at, updated_at |
 | cash_journals | _id, cajaId, cajaNombre, local, estado, fechaApertura, montoApertura, usuarioAperturaId/Nombre, observacionApertura, jornadaAnteriorId, fondoEsperado, diferenciaApertura, fechaCierre, usuarioCierreId/Nombre, saldoEsperado, montoContado, diferencia, fondoSiguiente, retiroCierre, observacionCierre, version, created_at, updated_at |
-| cash_movements | _id, cajaId, jornadaId, local, tipo, naturaleza, monto, fecha, origenTipo, origenId, descripcion, observaciones cuando corresponde, usuarioId/Nombre, eventoId, created_at |
+| cash_movements | _id, cajaId, jornadaId, local, tipo, naturaleza, monto, metodoPago, afectaEfectivo, fecha, origenTipo, origenId, descripcion, observaciones cuando corresponde, usuarioId/Nombre, eventoId, created_at |
 
 Jornadas guardan además operacionApertura/huellaApertura y, al cerrar, operacionCierre/huellaCierre.
 Los movimientos manuales guardan una huella; los ajustes conservan movimientoOriginalId y jornadaOriginalId.
@@ -45,7 +45,7 @@ Los filtros de días cubren el día completo en America/Lima.
 
 Ventas y Gastos conservan sus colecciones sales y expenses.
 Se añaden auditoria, operaciones idempotentes, version, anulado y datos de anulación.
-El vínculo pagoCaja contiene controlado, jornadaId, monto firmado y movimientoId.
+El vínculo pagoCaja contiene controlado, jornadaId, monto físico compatible, montoOperacion firmado, metodoPago, afectaEfectivo y movimientoId.
 En Ventas cada cobro tiene su propio vínculo y método en pagos; no se atribuye a efectivo todo el importe de una venta con abonos de distintos métodos.
 No se migraron documentos históricos.
 
@@ -62,6 +62,7 @@ Creados/verificados con nombres estables:
 | cash_movements | cash_unique_event: local + eventoId, único | No duplicar movimientos |
 | cash_movements | cash_journal_movements: local + jornadaId + fecha descendente + _id descendente | Movimientos paginados |
 | cash_movements | cash_movement_source: local + origenTipo + origenId | Trazabilidad del origen |
+| cash_movements | cash_journal_payment_method: local + jornadaId + metodoPago + fecha descendente | Filtro y resumen por método |
 | sales | sales_creation_operation: local + operacionCreacion, único parcial cuando es string | No duplicar ventas nuevas; no colisiona con documentos antiguos |
 | expenses | expenses_creation_operation: local + operacionCreacion, único parcial cuando es string | No duplicar gastos nuevos |
 | sales | sales_local_fecha: local + fechaVenta descendente + _id descendente | Listado de ventas |
@@ -207,9 +208,9 @@ Rutas Angular: /almacen/caja, /almacen/caja/historial y /almacen/caja/jornadas/:
 ## 10. Integración de Ventas
 
 cancelado conserva su significado histórico de **pagado**; no se confundió con anulado.
-Una venta pagada genera un cobro. Solo EFECTIVO genera VENTA_EFECTIVO.
+Una venta pagada genera un cobro: EFECTIVO usa VENTA_EFECTIVO y los demás métodos usan VENTA_NO_EFECTIVO.
 Una venta a crédito consume stock, pero no registra ingreso de efectivo hasta cobrar.
-Cada abono, incluido el último, requiere monto, método y fecha; solo su parte en efectivo afecta Caja.
+Cada abono, incluido el último, requiere monto, método y fecha; todos se asignan a la jornada y solo EFECTIVO altera el saldo físico.
 El detalle muestra los cobros y sus métodos reales, aunque difieran del método originalmente seleccionado.
 Los cobros diarios se contabilizan una sola vez, incluidos los finales, en el indicador de cobros de créditos.
 
@@ -219,10 +220,10 @@ La API admite la edición de ventas sin ese conflicto; no se reconstruyó el edi
 
 ## 11. Integración de Gastos
 
-PAGADO + EFECTIVO produce un egreso GASTO_EFECTIVO.
-PAGADO con Yape, Plin, transferencia, tarjeta u otro no mueve efectivo.
+PAGADO + EFECTIVO produce GASTO_EFECTIVO.
+PAGADO con Yape, Plin, transferencia, tarjeta u otro produce GASTO_NO_EFECTIVO y no mueve el saldo físico.
 PENDIENTE no produce movimiento.
-Al pagarse posteriormente, se registra el efecto con el método elegido.
+Al pagarse posteriormente, el gasto se registra en la jornada abierta con el método elegido.
 Editar monto, estado o método genera el ajuste correspondiente mientras la jornada de ese pago permanece abierta.
 La validación de importe positivo, dos decimales, método obligatorio si pagado y fecha de pago permanece en backend.
 
@@ -239,16 +240,23 @@ Las transacciones PyMongo usan snapshot y mayoría. Escrituras sobre la caja/jor
 El cierre incluye la versión del resumen visto: si otro movimiento cambió el saldo, se rechaza y se solicita actualizar.
 No hay alternativa silenciosa de escrituras parciales cuando MongoDB no admite transacciones.
 
+## 12.1. Resumen por métodos y movimientos manuales
+
+La API devuelve `resumen.metodos` para EFECTIVO, YAPE, PLIN, TRANSFERENCIA, TARJETA y OTRO. Cada método contiene `ingresos`, `egresos`, `neto` y `operaciones`; `resumen.noEfectivo` agrega los métodos digitales.
+La vista conserva las tarjetas físicas y añade una fila de tarjetas por método. El neto mostrado es el neto registrado durante la jornada, no el saldo confirmado de una cuenta bancaria o billetera.
+Los ingresos y egresos manuales aceptan `metodoPago`; EFECTIVO conserva INGRESO_MANUAL/RETIRO y los demás usan INGRESO_NO_EFECTIVO/EGRESO_NO_EFECTIVO.
+El listado admite el filtro `metodo_pago` y muestra el método de cada movimiento. Los documentos físicos anteriores, que no tenían estos campos, se leen como EFECTIVO. No se crean movimientos retroactivos.
+
 ## 13. Cálculo del saldo
 
-Saldo esperado = apertura + ventas efectivo + ingresos manuales + ajustes de entrada − gastos efectivo − retiros − ajustes de salida.
+Saldo físico esperado = apertura + ventas efectivo + ingresos manuales en efectivo + ajustes físicos de entrada − gastos efectivo − retiros − ajustes físicos de salida.
 
 Se reconstruye con los movimientos; no se guarda únicamente un saldo mutable.
 El RETIRO_CIERRE queda separado para no restarlo antes del conteo y descontarlo dos veces.
 
 Ejemplo verificado:
 500 + 100 − 50 − 200 + 100 − 150 = **300**.
-La venta Yape y el gasto por transferencia no cambian ese resultado.
+La venta Yape y el gasto por transferencia no cambian ese resultado físico; sí aparecen en ingresos, egresos y neto de sus métodos.
 
 ## 14. Apertura y comienzo del control
 
@@ -257,11 +265,11 @@ Si existe una jornada abierta del mismo local, otra apertura se rechaza.
 La primera apertura marca inicioControl de forma atómica.
 No recorre ni importa ventas o gastos anteriores.
 
-Toda operación nueva en efectivo requiere una jornada abierta, incluso cuando todavía no existen
+Todo cobro o pago nuevo, efectivo o no efectivo, requiere una jornada abierta, incluso cuando todavía no existen
 cash_registers ni cash_journals. Borrar las colecciones de Caja no desactiva esta regla: el backend
-vuelve a crear el registro base, pero rechaza la venta o gasto hasta que se abra una jornada.
+vuelve a crear el registro base, pero rechaza la venta, cobro o gasto pagado hasta que se abra una jornada.
 inicioControl conserva el límite de auditoría histórica y no funciona como interruptor de seguridad.
-No se impiden pagos no efectivos ni operaciones pendientes.
+Las ventas a crédito y los gastos pendientes continúan permitidos porque todavía no representan un pago.
 Cobrar ahora una deuda antigua o pagar ahora un gasto pendiente antiguo sí es una nueva operación de dinero.
 La fecha elegida del pago no inserta movimientos en jornadas históricas: el movimiento corresponde a la jornada abierta durante su registro.
 
@@ -299,9 +307,9 @@ Esto evita descontar otra vez un faltante que ya quedó registrado en el conteo 
 
 Ventas y Gastos se conservan con anulado=true, motivo, usuario y fecha.
 Los movimientos originales nunca se borran.
-Si la operación tuvo efectivo controlado, anular registra su reversión en la jornada actualmente abierta.
+Si la operación tuvo un pago controlado, anular registra su reversión en la jornada actualmente abierta y en el mismo método.
 En una venta también se devuelve stock una sola vez.
-Si no hay jornada abierta, la anulación con reversión de efectivo se rechaza sin cambios parciales.
+Si no hay jornada abierta, una anulación que requiera reversión se rechaza sin cambios parciales.
 
 La confirmación pide motivo y explica que se revertirá el dinero.
 Anular una operación implica esa reversión; corregir un cobro que nunca ocurrió usa la acción de corrección, no una devolución.
@@ -309,8 +317,8 @@ Las operaciones previas al inicio del control no generan movimientos retroactivo
 
 ## 19. Pruebas realizadas
 
-- **56 pruebas backend aprobadas**: reglas, API, permisos, locales, fechas, importes, reintentos, rollback, edición, anulaciones, reportes y los 15 casos solicitados.
-- **41 pruebas Angular aprobadas**: Gastos, Caja, créditos, filtros, peticiones HTTP, doble envío, versión de cierre, errores y detalle de métodos.
+- **96 pruebas backend aprobadas**: reglas, API, permisos, locales, fechas, importes, reintentos, rollback, edición, anulaciones, reportes e integración de todos los medios de pago.
+- **10 pruebas Angular focalizadas de Caja aprobadas**: filtros, movimientos digitales, doble envío, versión de cierre y errores. La compilación de producción también fue aprobada.
 - **MongoDB real**: flujo completo hasta esperado 300 / contado 295 / fondo 200; aperturas simultáneas; venta repetida simultáneamente; rollback después de stock y movimiento; anulación/edición; cierre concurrente con movimiento.
 - Las pruebas reales usaron únicamente colecciones temporales codex_cash_test_* dentro de almacen, eliminadas al terminar. No escribieron ventas, gastos, stock ni jornadas operativas reales.
 - Inicio real de FastAPI, generación de OpenAPI y rutas montadas verificados; peticiones sin usuario a Caja, Ventas y Gastos siguen rechazadas.

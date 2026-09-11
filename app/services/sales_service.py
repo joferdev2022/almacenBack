@@ -7,7 +7,6 @@ from bson import ObjectId
 from fastapi import HTTPException
 
 from app.db.mongo import salesDb, productsDb
-from app.models.payment_model import is_cash
 from app.models.sales_model import saleModel, SalePaymentModel
 from app.services import cash_service as cash
 from app.services.cash_effects import capture_payment, revise_payment
@@ -82,7 +81,7 @@ def _collect(sale, amount, method, payment_date, key, user, session, kind="ABONO
                "fecha": datetime.now(timezone.utc), "fechaPago": date_filter(payment_date, None)["$gte"],
                "tipo": kind, "usuarioId": user["_id"], "anulado": False}
     receipt["pagoCaja"] = capture_payment(user, session, "VENTA", sale["_id"],
-        f"VENTA:{sale['_id']}:{key}", amount if is_cash(method) else ZERO,
+        f"VENTA:{sale['_id']}:{key}", amount, method,
         ("Venta" if kind == "VENTA" else "Abono de venta") + " " + str(sale["_id"])[-8:])
     sale.setdefault("pagos", []).append(receipt)
     sale["controlCobros"] = True
@@ -153,7 +152,7 @@ def update_state_by_id(sale_id, new_state, reason, user, key):
                 continue
             receipt["pagoCaja"], adjustment = revise_payment(receipt.get("pagoCaja"), ZERO, user, session,
                 "VENTA", sale["_id"], f"VENTA:{sale['_id']}:{key}:{index}",
-                "Corrección de cobro inexistente: " + reason)
+                "Corrección de cobro inexistente: " + reason, target_method=None)
             receipt["anulado"] = True
             if adjustment:
                 changes.append(adjustment)
@@ -182,9 +181,10 @@ def update_sale_by_id(sale_id, data: saleModel, user, key):
         changes = []
         if changed and sale["estado"] == "cancelado" and receipts:
             receipt = receipts[0]
-            target = money(values["precioTotal"]) if is_cash(values["paymentMethod"]) else ZERO
+            target = money(values["precioTotal"])
             receipt["pagoCaja"], adjustment = revise_payment(receipt.get("pagoCaja"), target, user, session,
-                "VENTA", sale["_id"], f"VENTA:{sale['_id']}:{key}", "Corrección de importe o método de venta")
+                "VENTA", sale["_id"], f"VENTA:{sale['_id']}:{key}", "Corrección de importe o método de venta",
+                target_method=values["paymentMethod"])
             receipt["monto"], receipt["metodoPago"] = values["precioTotal"], values["paymentMethod"].upper()
             if adjustment:
                 changes.append(adjustment)
@@ -210,7 +210,8 @@ def delete_sale_by_id(sale_id, user, key, reason):
             if receipt.get("anulado"):
                 continue
             receipt["pagoCaja"], adjustment = revise_payment(receipt.get("pagoCaja"), ZERO, user, session,
-                "VENTA", sale["_id"], f"VENTA:{sale['_id']}:{key}:{index}", "Anulación de venta: " + reason, annul=True)
+                "VENTA", sale["_id"], f"VENTA:{sale['_id']}:{key}:{index}", "Anulación de venta: " + reason,
+                annul=True, target_method=None)
             receipt["anulado"] = True
             if adjustment:
                 changes.append(adjustment)

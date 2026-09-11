@@ -103,6 +103,21 @@ class CashTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(summary["otrosIngresos"], 100)
         self.assertEqual(summary["retiros"], 150)
 
+    def test_manual_non_cash_movements_do_not_change_physical_balance(self):
+        journal = self.opened()
+        income = self.movement(journal, "80", metodoPago="YAPE")
+        expense = self.movement(journal, "25", "EGRESO", metodoPago="PLIN")
+        summary = service.get_journal(journal["id"], self.user)["resumen"]
+        self.assertEqual(summary["saldoEsperado"], 500)
+        self.assertEqual(summary["metodos"]["YAPE"],
+            {"ingresos": 80.0, "egresos": 0.0, "neto": 80.0, "operaciones": 1})
+        self.assertEqual(summary["metodos"]["PLIN"],
+            {"ingresos": 0.0, "egresos": 25.0, "neto": -25.0, "operaciones": 1})
+        self.assertEqual(summary["noEfectivo"],
+            {"ingresos": 80.0, "egresos": 25.0, "neto": 55.0, "operaciones": 2})
+        self.assertFalse(income["afectaEfectivo"])
+        self.assertFalse(expense["afectaEfectivo"])
+
     def test_close_difference_withdrawal_and_next_fund(self):
         journal = self.opened("300")
         request = self.closing(journal)
@@ -227,6 +242,7 @@ class CashTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(page["items"]), 1)
         self.assertEqual(service.movements(journal["id"], self.user, naturaleza="EGRESO")["total"], 1)
         self.assertEqual(service.movements(journal["id"], self.user, tipo="INGRESO_MANUAL")["total"], 1)
+        self.assertEqual(service.movements(journal["id"], self.user, metodo_pago="EFECTIVO")["total"], 2)
         self.assertEqual(service.movements(journal["id"], self.user, fecha_hasta=date(2000, 1, 1))["total"], 0)
         self.assert_http(422, lambda: service.history(self.user, fecha_desde=date(2026, 2, 1), fecha_hasta=date(2026, 1, 1)))
 
@@ -309,13 +325,21 @@ class CashTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(closed["fondoSiguiente"], 200)
         self.assertEqual(service.current_cash(self.user)["fondoSugerido"], 200)
 
-    def test_all_non_cash_methods_leave_physical_balance_unchanged(self):
+    def test_all_non_cash_methods_are_counted_without_changing_physical_balance(self):
         journal = self.opened()
         for method in ("YAPE", "PLIN", "TRANSFERENCIA", "OTRO"):
             self.create_sale(method=method)
             self.create_expense(method=method)
-        self.assertEqual(self.balance(journal), 500)
-        self.assertEqual(self.movements.documents, [])
+        summary = service.get_journal(journal["id"], self.user)["resumen"]
+        self.assertEqual(summary["saldoEsperado"], 500)
+        self.assertEqual(len(self.movements.documents), 8)
+        self.assertTrue(all(not movement["afectaEfectivo"] for movement in self.movements.documents))
+        for method in ("YAPE", "PLIN", "TRANSFERENCIA", "OTRO"):
+            self.assertEqual(summary["metodos"][method],
+                {"ingresos": 100.0, "egresos": 50.0, "neto": 50.0, "operaciones": 2})
+            self.assertEqual(service.movements(journal["id"], self.user, metodo_pago=method)["total"], 2)
+        self.assertEqual(summary["noEfectivo"],
+            {"ingresos": 400.0, "egresos": 200.0, "neto": 200.0, "operaciones": 8})
 
     def test_empty_cash_collections_still_reject_cash_sale_and_expense(self):
         self.assertEqual(self.registers.documents, [])
@@ -333,8 +357,11 @@ class CashTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.db.expensesDb.documents, [])
         self.assertEqual(self.db.productsDb.documents[0]["cantidadEnStock"], stock)
         self.assertEqual(self.movements.documents, [])
-        self.create_sale(method="yape")
-        self.create_expense(method="TRANSFERENCIA")
+        self.assert_http(409, lambda: self.create_sale(method="yape"))
+        self.assert_http(409, lambda: self.create_expense(method="TRANSFERENCIA"))
+        self.create_sale(state="credito", method=None)
+        self.create_expense(state="PENDIENTE", method=None)
+        self.assertEqual(self.movements.documents, [])
 
     def test_missing_open_cash_rolls_back_sale_expense_and_payment(self):
         journal = self.opened()
@@ -352,8 +379,12 @@ class CashTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.db.expensesDb.documents), 1)
         self.assertEqual(self.db.productsDb.documents[0]["cantidadEnStock"], stock)
         self.assertEqual(sales.get_sale_by_id(credit["id"], self.user)["saldoPendiente"], 100)
-        self.create_sale(method="yape")
-        self.create_expense(method="TRANSFERENCIA")
+        self.assert_http(409, lambda: self.create_sale(method="yape"))
+        self.assert_http(409, lambda: self.create_expense(method="TRANSFERENCIA"))
+        self.assert_http(409, lambda: sales.update_payment_by_id(credit["id"],
+            SalePaymentModel(monto=10, metodoPago="YAPE", fechaPago="2026-08-28"), self.user, str(uuid4())))
+        self.assert_http(409, lambda: expenses.pay_expense_by_id(pending["id"],
+            ExpensePaymentModel(metodoPago="PLIN", fechaPago="2026-08-28"), self.user, str(uuid4())))
 
     def test_expense_correction_and_annulment_keep_trace(self):
         journal = self.opened()
@@ -433,7 +464,10 @@ class CashTests(unittest.IsolatedAsyncioTestCase):
 
     def test_old_pending_operations_only_affect_cash_when_paid_now(self):
         old_sale = self.create_sale(state="credito", method=None)
-        old_paid = self.create_sale(method="yape")
+        legacy_link = {"controlado": False, "jornadaId": None,
+                       "monto": Decimal128("0.00"), "movimientoId": None}
+        with patch.object(sales, "capture_payment", return_value=legacy_link):
+            old_paid = self.create_sale(method="yape")
         old_expense = self.create_expense(state="PENDIENTE", method=None)
         journal = self.opened()
         self.assertEqual(self.balance(journal), 500)

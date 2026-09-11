@@ -21,7 +21,6 @@ from app.services.auth_service import ALGORITHM, SECRET_KEY
 from app.utils.helpers import expense_helper
 from app.services import cash_service as cash
 from app.services.cash_effects import capture_payment, revise_payment
-from app.models.payment_model import is_cash
 from app.utils.cash_helpers import ZERO, money
 from app.utils.operation_helpers import operation_hash, was_applied, stamp, ensure_active
 
@@ -187,7 +186,7 @@ def _prepare_expense(data: ExpenseModel, user: dict, previous=None, session=None
 
 
 def _expense_effect(expense):
-    return -money(expense["monto"]) if expense["estado"] == "PAGADO" and is_cash(expense.get("metodoPago")) else ZERO
+    return -money(expense["monto"]) if expense["estado"] == "PAGADO" else ZERO
 
 
 def _expense_snapshot(expense):
@@ -212,7 +211,8 @@ def add_expense(data: ExpenseModel, user: dict, key: str):
                         "created_at": expense["updated_at"], "operacionCreacion": key, "anulado": False})
         if expense["estado"] == "PAGADO":
             expense["pagoCaja"] = capture_payment(user, session, "GASTO", expense["_id"],
-                f"GASTO:{expense['_id']}:{key}", _expense_effect(expense), expense.get("descripcion") or expense["categoria"])
+                f"GASTO:{expense['_id']}:{key}", _expense_effect(expense), expense.get("metodoPago"),
+                expense.get("descripcion") or expense["categoria"])
         stamp(expense, key, digest, user, "CREAR")
         expensesDb.insert_one(expense, session=session)
         return expense_helper(expense)
@@ -234,11 +234,13 @@ def update_expense_by_id(expense_id: str, data: ExpenseModel, user: dict, key: s
         changes = [{"antes": before, "despues": _expense_snapshot(expense)}]
         if not was_paid and expense["estado"] == "PAGADO":
             expense["pagoCaja"] = capture_payment(user, session, "GASTO", expense["_id"],
-                f"GASTO:{expense['_id']}:{key}", _expense_effect(expense), expense.get("descripcion") or expense["categoria"])
+                f"GASTO:{expense['_id']}:{key}", _expense_effect(expense), expense.get("metodoPago"),
+                expense.get("descripcion") or expense["categoria"])
         elif was_paid:
             expense["pagoCaja"], adjustment = revise_payment(expense.get("pagoCaja"), _expense_effect(expense),
                 user, session, "GASTO", expense["_id"], f"GASTO:{expense['_id']}:{key}",
-                "Corrección de gasto: " + (expense.get("descripcion") or expense["categoria"]))
+                "Corrección de gasto: " + (expense.get("descripcion") or expense["categoria"]),
+                target_method=expense.get("metodoPago"))
             if adjustment:
                 changes.append(adjustment)
         stamp(expense, key, digest, user, "EDITAR", changes=changes)
@@ -259,7 +261,8 @@ def pay_expense_by_id(expense_id: str, data: ExpensePaymentModel, user: dict, ke
             raise HTTPException(409, "El gasto ya no está pendiente. Actualiza el listado.")
         expense.update(estado="PAGADO", metodoPago=data.metodoPago, fechaPago=_utc_day(data.fechaPago))
         expense["pagoCaja"] = capture_payment(user, session, "GASTO", expense["_id"],
-            f"GASTO:{expense['_id']}:{key}", _expense_effect(expense), expense.get("descripcion") or expense["categoria"])
+            f"GASTO:{expense['_id']}:{key}", _expense_effect(expense), expense.get("metodoPago"),
+            expense.get("descripcion") or expense["categoria"])
         stamp(expense, key, digest, user, "PAGAR")
         return _write_expense(expense, session)
     return cash.transaction(write)
@@ -274,7 +277,8 @@ def delete_expense_by_id(expense_id: str, user: dict, key: str, reason: str):
         if was_applied(expense, key, digest) or expense.get("anulado"):
             return expense_helper(expense)
         link, adjustment = revise_payment(expense.get("pagoCaja"), ZERO, user, session, "GASTO",
-            expense["_id"], f"GASTO:{expense['_id']}:{key}", "Anulación de gasto: " + reason, annul=True)
+            expense["_id"], f"GASTO:{expense['_id']}:{key}", "Anulación de gasto: " + reason,
+            annul=True, target_method=None)
         expense.update(anulado=True, anulado_at=datetime.now(timezone.utc), anulado_by=user["_id"],
                        motivoAnulacion=reason, pagoCaja=link)
         stamp(expense, key, digest, user, "ANULAR", reason, [adjustment] if adjustment else [])
