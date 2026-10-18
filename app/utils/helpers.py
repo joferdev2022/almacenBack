@@ -67,4 +67,7 @@ _EXPENSE_TIMEZONE = ZoneInfo("America/Lima")
 
 def expense_helper(expense: dict) -> dict:
     from app.utils.cash_helpers import serialize
-    return serialize({key: value for key, value in expense.items() if key not in ("operaciones", "operacionCreacion")})
+    result = {key: value for key, value in expense.items() if key not in ("operaciones", "operacionCreacion")}
+    result["vendedorId"] = expense.get("vendedorId")
+    result["vendedorNombre"] = expense.get("vendedorNombre") or "TIENDA"
+    return serialize(result)

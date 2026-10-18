@@ -12,7 +12,7 @@ from fastapi.security import OAuth2PasswordBearer
 from pydantic import TypeAdapter, ValidationError
 from pymongo import DESCENDING, ReturnDocument
 
-from app.db.mongo import authDb, expensesDb, providersDb
+from app.db.mongo import authDb, expensesDb, providersDb, sellersDb
 from app.models.expense_model import (
     ExpenseCategory, ExpenseModel, ExpensePaymentModel, ExpenseState,
     PaymentMethod, ReceiptType,
@@ -102,6 +102,14 @@ def retrieve_expense_providers(user: dict, search: str, page: int, xpage: int):
                       for p in providers], "total": total, "page": page, "xpage": xpage}
 
 
+def retrieve_expense_sellers(user: dict):
+    sellers = sellersDb.find({"local": user["local"]}, {"nombreVendedor": 1, "aliasVendedor": 1}).sort(
+        [("nombreVendedor", 1), ("_id", 1)]
+    )
+    return [{"id": str(seller["_id"]), "nombreVendedor": seller["nombreVendedor"],
+             "aliasVendedor": seller.get("aliasVendedor") or ""} for seller in sellers]
+
+
 def build_expense_query(user: dict, search="", fecha_desde=None, fecha_hasta=None,
                         categoria=None, estado=None, metodo_pago=None, local=None):
     if local is not None and local != user["local"]:
@@ -169,6 +177,19 @@ def _prepare_expense(data: ExpenseModel, user: dict, previous=None, session=None
     result["monto"] = Decimal128(data.monto)
     result["proveedorId"] = None
     result["proveedorNombre"] = None
+    result["vendedorId"] = None
+    result["vendedorNombre"] = "TIENDA"
+    if data.vendedorId:
+        seller_id = _object_id(data.vendedorId, "vendedor")
+        seller = sellersDb.find_one({"_id": seller_id, "local": user["local"]}, session=session)
+        if previous and previous.get("vendedorId") == seller_id:
+            # Conservar quién hizo el gasto aunque cambie o se elimine del catálogo.
+            result["vendedorNombre"] = previous["vendedorNombre"]
+        elif seller:
+            result["vendedorNombre"] = seller["nombreVendedor"]
+        else:
+            raise HTTPException(status_code=422, detail="El vendedor no existe en tu local.")
+        result["vendedorId"] = seller_id
     if data.proveedorId:
         provider_id = _object_id(data.proveedorId, "proveedor")
         provider = providersDb.find_one({"_id": provider_id, "local": user["local"]}, session=session)
@@ -190,7 +211,8 @@ def _expense_effect(expense):
 
 
 def _expense_snapshot(expense):
-    return {key: expense.get(key) for key in ("monto", "estado", "metodoPago", "fechaPago")}
+    return {key: expense.get(key) for key in ("monto", "estado", "metodoPago", "fechaPago",
+                                             "vendedorId", "vendedorNombre")}
 
 
 def _write_expense(expense, session):

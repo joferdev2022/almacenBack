@@ -26,6 +26,7 @@ class ExpenseModel(BaseModel):
     metodoPago: Optional[PaymentMethod] = None
     fechaPago: Optional[date] = None
     proveedorId: Optional[str] = None
+    vendedorId: Optional[str] = None
     tipoComprobante: ReceiptType = "SIN_COMPROBANTE"
     numeroComprobante: Optional[str] = Field(default=None, max_length=100)
     observaciones: Optional[str] = Field(default=None, max_length=2000)

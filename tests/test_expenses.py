@@ -100,6 +100,93 @@ class ExpensesApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(expense["fechaPago"])
         self.assertIsNone(expense["metodoPago"])
 
+    async def test_no_sellers_defaults_to_store_and_reads_legacy_expenses(self):
+        status, result = await self.request("GET", "/api/expenses/sellers")
+        self.assertEqual(status, 200)
+        self.assertEqual(result["data"], [])
+        expense = await self.create()
+        self.assertIsNone(expense["vendedorId"])
+        self.assertEqual(expense["vendedorNombre"], "TIENDA")
+        self.expenses.documents[0].pop("vendedorId")
+        self.expenses.documents[0].pop("vendedorNombre")
+        for path in ("/api/expenses", f"/api/expenses/{expense['id']}"):
+            status, result = await self.request("GET", path)
+            self.assertEqual(status, 200)
+            saved = result["data"][0][0] if path == "/api/expenses" else result["data"]
+            self.assertEqual(saved["vendedorNombre"], "TIENDA")
+            self.assertIsNone(saved["vendedorId"])
+
+    async def test_seller_choices_include_all_local_sellers_and_require_authentication(self):
+        for index in range(12):
+            self.db.sellersDb.insert_one({"nombreVendedor": f"Vendedor {index:02}", "local": 1})
+        self.db.sellersDb.insert_one({"nombreVendedor": "Otro local", "local": 2})
+        status, result = await self.request("GET", "/api/expenses/sellers", token=self.token_for(self.reader))
+        self.assertEqual(status, 200)
+        self.assertEqual(len(result["data"]), 12)
+        self.assertEqual(result["data"][0]["nombreVendedor"], "Vendedor 00")
+        self.assertEqual(result["data"][0]["aliasVendedor"], "")
+        status, result = await self.request("GET", "/api/expenses/sellers", token=self.token_for(self.foreign))
+        self.assertEqual(status, 200)
+        self.assertEqual([seller["nombreVendedor"] for seller in result["data"]], ["Otro local"])
+        status, _ = await self.request("GET", "/api/expenses/sellers", token=None)
+        self.assertEqual(status, 401)
+
+    async def test_expense_seller_is_validated_and_saved_separately_from_the_registering_user(self):
+        seller = {"_id": ObjectId(), "nombreVendedor": "Ana Pérez", "aliasVendedor": "Ana", "local": 1}
+        self.db.sellersDb.insert_one(seller)
+        expense = await self.create(vendedorId=str(seller["_id"]))
+        self.assertEqual(expense["vendedorId"], str(seller["_id"]))
+        self.assertEqual(expense["vendedorNombre"], "Ana Pérez")
+        self.assertEqual(expense["usuarioId"], str(self.writer["_id"]))
+        _, result = await self.request("GET")
+        self.assertEqual(result["data"][0][0]["vendedorNombre"], "Ana Pérez")
+        foreign = {"_id": ObjectId(), "nombreVendedor": "Otro local", "local": 2}
+        self.db.sellersDb.insert_one(foreign)
+        for seller_id, expected in ((str(foreign["_id"]), 422), (str(ObjectId()), 422), ("invalido", 400)):
+            status, _ = await self.request("POST", data=self.payload(vendedorId=seller_id))
+            self.assertEqual(status, expected)
+        status, _ = await self.request("POST", data=self.payload(vendedorNombre="Nombre inventado"))
+        self.assertEqual(status, 422)
+        self.assertEqual(len(self.expenses.documents), 1)
+
+    async def test_seller_history_survives_renaming_deletion_and_payment(self):
+        seller = {"_id": ObjectId(), "nombreVendedor": "Ana Pérez", "local": 1}
+        self.db.sellersDb.insert_one(seller)
+        seller_id = str(seller["_id"])
+        expense = await self.create(vendedorId=seller_id, estado="PENDIENTE", metodoPago=None)
+        path = f"/api/expenses/{expense['id']}"
+        self.db.sellersDb.documents[0]["nombreVendedor"] = "Otro nombre"
+        status, result = await self.request("PUT", path, self.payload(
+            vendedorId=seller_id, monto=60, estado="PENDIENTE", metodoPago=None))
+        self.assertEqual(status, 200)
+        self.assertEqual(result["data"]["vendedorNombre"], "Ana Pérez")
+        self.db.sellersDb.documents = []
+        status, result = await self.request("PUT", path, self.payload(
+            vendedorId=seller_id, monto=70, estado="PENDIENTE", metodoPago=None))
+        self.assertEqual(status, 200)
+        self.assertEqual(result["data"]["vendedorNombre"], "Ana Pérez")
+        status, result = await self.request("PUT", path + "/pay",
+                                          {"metodoPago": "EFECTIVO", "fechaPago": "2026-08-28"})
+        self.assertEqual(status, 200)
+        self.assertEqual(result["data"]["vendedorId"], seller_id)
+        self.assertEqual(result["data"]["vendedorNombre"], "Ana Pérez")
+
+    async def test_edit_can_reassign_seller_or_store_and_audits_the_change(self):
+        seller = {"_id": ObjectId(), "nombreVendedor": "Ana Pérez", "local": 1}
+        self.db.sellersDb.insert_one(seller)
+        expense = await self.create()
+        path = f"/api/expenses/{expense['id']}"
+        status, result = await self.request("PUT", path, self.payload(vendedorId=str(seller["_id"])))
+        self.assertEqual(status, 200)
+        self.assertEqual(result["data"]["vendedorNombre"], "Ana Pérez")
+        changes = result["data"]["auditoria"][-1]["cambios"][0]
+        self.assertEqual(changes["antes"]["vendedorNombre"], "TIENDA")
+        self.assertEqual(changes["despues"]["vendedorNombre"], "Ana Pérez")
+        status, result = await self.request("PUT", path, self.payload(vendedorId=None))
+        self.assertEqual(status, 200)
+        self.assertIsNone(result["data"]["vendedorId"])
+        self.assertEqual(result["data"]["vendedorNombre"], "TIENDA")
+
     async def test_invalid_business_data_rejected(self):
         cases = [
             {"metodoPago": None}, {"monto": 0}, {"monto": -100}, {"monto": "1.001"},

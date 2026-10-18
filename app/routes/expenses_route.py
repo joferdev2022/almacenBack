@@ -41,6 +41,11 @@ def get_expenses(page: int = Query(default=1, ge=1), xpage: int = Query(default=
     return ResponseExpenseModel(data, "Lista de gastos")
 
 
+@router.get("/sellers")
+def expense_sellers(user: dict = Depends(service.get_expense_user)):
+    return ResponseExpenseModel(service.retrieve_expense_sellers(user), "Vendedores del local")
+
+
 @router.post("", status_code=201)
 def save_expense(data: ExpenseModel, key: str = Depends(operation_key), user: dict = Depends(service.get_expense_writer)):
     return ResponseExpenseModel(service.add_expense(data, user, key), "Gasto creado correctamente", 201)
