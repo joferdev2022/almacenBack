@@ -23,6 +23,7 @@ try:
 
     # Items = db["usuarios"]
     productsDb = db["products"]
+    productHistoryDb = db["product_history"]
     salesDb = db["sales"]
     authDb = db["auth"]
     sellersDb = db["salenMan"]

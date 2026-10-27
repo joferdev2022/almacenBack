@@ -3,6 +3,10 @@ from typing import Optional
 from bson import ObjectId
 from datetime import datetime
 
+class ProductHistoryRequest(BaseModel):
+    pin: str = Field(min_length=4, max_length=4, pattern=r'^[0-9]{4}$')
+
+
 class productModel(BaseModel):
     id: Optional[str] = Field(None, alias="_id")
     nombre: str

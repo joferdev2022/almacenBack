@@ -8,6 +8,7 @@ from app.routes import expenses_route, cash_route, reports_route
 from app.services.cash_service import ensure_indexes as ensure_cash_indexes
 from app.routes import authLiquor_route, creditsLiquor_route, dashboardLiquor_route, expensesLiquor_route, products_route, productsLiquor_route, sales_route, dashboard_route, auth_route, salesLiquor_route, seller_route, supplier_route
 from app.services.creditsLiquor_service import ensure_credit_liquor_indexes
+from app.services.product_history_service import ensure_indexes as ensure_product_history_indexes
 
 app = FastAPI()
 
@@ -15,6 +16,7 @@ app = FastAPI()
 def initialize_cash_indexes():
     ensure_cash_indexes()
     ensure_credit_liquor_indexes()
+    ensure_product_history_indexes()
 
 
 origins = ["*"]

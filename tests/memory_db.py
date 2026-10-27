@@ -238,7 +238,7 @@ class MemorySession:
 class MemoryDatabase:
     def __init__(self):
         names = {"authDb": "auth", "sellersDb": "salenMan", "providersDb": "providers", "expensesDb": "expenses",
-                 "salesDb": "sales", "productsDb": "products", "cashRegistersDb": "cash_registers",
+                 "salesDb": "sales", "productsDb": "products", "productHistoryDb": "product_history", "cashRegistersDb": "cash_registers",
                  "cashJournalsDb": "cash_journals", "cashMovementsDb": "cash_movements",
                  "auth_liquorDb": "auth_liquor", "products_liquorDb": "products_liquor",
                  "sales_liquorDb": "sales_liquor", "providers_liquorDb": "providers_liquor",
@@ -257,9 +257,9 @@ if "app.db.mongo" not in sys.modules:
 
 def database_patches(database):
     from unittest.mock import patch
-    from app.services import cash_service, expenses_service, sales_service
+    from app.services import cash_service, expenses_service, sales_service, products_service, product_history_service
     patches = []
-    for module in (cash_service, expenses_service, sales_service):
+    for module in (cash_service, expenses_service, sales_service, products_service, product_history_service):
         for attr, value in database.__dict__.items():
             if hasattr(module, attr):
                 patches.append(patch.object(module, attr, value))

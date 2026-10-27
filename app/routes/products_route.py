@@ -6,10 +6,18 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.services.products_service import retrieve_products, add_product, delete_product_by_id, update_product_by_id, upload_excel, download_excel
 from app.models.product_model import productModel, ResponseProductModel, ErrorResponseModel
+from app.models.product_model import ProductHistoryRequest
+from app.services.product_history_service import retrieve_history, optional_product_actor
+from app.services.expenses_service import get_expense_user
 
 
 
 router = APIRouter()
+
+
+@router.post('/products/{id}/history', tags=['products'])
+def product_history(id: str, data: ProductHistoryRequest, user: dict = Depends(get_expense_user)):
+    return {'data': retrieve_history(id, data.pin, user)}
 
 
 @router.get("/products", tags=["products"])
@@ -23,19 +31,19 @@ async def get_products(page: int = 1, xpage: int = 10, local: int = 1):
     return ResponseProductModel(products_list, "Lista de productos")
 
 @router.post("/products", tags=["products"])
-async def save_product(product_data: productModel):
+async def save_product(product_data: productModel, user = Depends(optional_product_actor)):
     
     new_product = jsonable_encoder(product_data)
-    product_bd = await add_product(new_product)
+    product_bd = await add_product(new_product, user)
     # print(product_bd)
     return "ok"
     # return ResponseCustomerModel("Cliente creado de forma correcta")
     
 @router.put("/products/{id}", tags=["products"])
-async def update_product(id: str, product_data: productModel):
+async def update_product(id: str, product_data: productModel, user = Depends(optional_product_actor)):
     
     product_update = jsonable_encoder(product_data)
-    result = await update_product_by_id(id, product_update)
+    result = await update_product_by_id(id, product_update, user)
     
     if result:
         return ResponseProductModel("Producto ID: {} actualizado".format(id), "Producto actualizado de forma correcta")
@@ -47,8 +55,8 @@ async def update_product(id: str, product_data: productModel):
     )
 
 @router.delete("/products/{id}", tags=["products"])
-async def delete_product(id: str):
-    result = await delete_product_by_id(id)
+async def delete_product(id: str, user = Depends(optional_product_actor)):
+    result = await delete_product_by_id(id, user)
     if result:
         # return ResponseCustomerModel("Cliente ID: {} borrado".format(id), "Cliente borrado exitosamente")
         return "Producto borrado"

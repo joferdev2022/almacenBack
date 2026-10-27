@@ -13,6 +13,7 @@ from app.services.cash_effects import capture_payment, revise_payment
 from app.utils.cash_helpers import LIMA, ZERO, date_filter, money, object_id
 from app.utils.helpers import sale_helper
 from app.utils.operation_helpers import ensure_active, operation_hash, stamp, was_applied
+from app.services.product_history_service import record_change
 
 
 def _sale(sale_id, user, session=None):
@@ -53,7 +54,7 @@ def _values(data: saleModel):
     return result
 
 
-def _stock_change(old_items, new_items, local, session):
+def _stock_change(old_items, new_items, local, session, *, user, action, sale_id, reason=None):
     quantities = {}
     for sign, rows in ((1, old_items), (-1, new_items)):
         for item in rows:
@@ -65,9 +66,13 @@ def _stock_change(old_items, new_items, local, session):
         query = {"_id": product_id, "local": local}
         if delta < 0:
             query["cantidadEnStock"] = {"$gte": -delta}
+        before = productsDb.find_one({"_id": product_id, "local": local}, session=session)
         result = productsDb.update_one(query, {"$inc": {"cantidadEnStock": delta}}, session=session)
         if not result.matched_count and delta < 0:
             raise HTTPException(409, "Un producto no pertenece a tu local o no tiene stock suficiente.")
+        if result.matched_count:
+            after = {**before, 'cantidadEnStock': before.get('cantidadEnStock', 0) + delta}
+            record_change(before, after, action, user, session, source_id=sale_id, reason=reason)
 
 
 def _write(sale, session):
@@ -104,7 +109,8 @@ def add_sale(data: saleModel, user, key):
         sale["saldoPendiente"] = 0.0 if sale["estado"] == "cancelado" else float(total)
         if sale["estado"] == "cancelado":
             _collect(sale, total, sale["paymentMethod"], now.astimezone(LIMA).date(), key, user, session, "VENTA")
-        _stock_change([], sale["productos"], user["local"], session)
+        _stock_change([], sale["productos"], user["local"], session,
+                      user=user, action='VENTA', sale_id=sale['_id'])
         stamp(sale, key, digest, user, "CREAR")
         salesDb.insert_one(sale, session=session)
         return sale_helper(sale)
@@ -177,7 +183,8 @@ def update_sale_by_id(sale_id, data: saleModel, user, key):
         if changed and receipts and (len(receipts) != 1 or receipts[0].get("tipo") != "VENTA"):
             raise HTTPException(409, "Esta venta tiene abonos. No se pueden reemplazar sus importes ni métodos desde Editar.")
         before = {k: sale.get(k) for k in ("precioTotalOriginal", "paymentMethod", "productos")}
-        _stock_change(sale["productos"], values["productos"], user["local"], session)
+        _stock_change(sale["productos"], values["productos"], user["local"], session,
+                      user=user, action='EDICION_VENTA', sale_id=sale['_id'])
         changes = []
         if changed and sale["estado"] == "cancelado" and receipts:
             receipt = receipts[0]
@@ -215,7 +222,8 @@ def delete_sale_by_id(sale_id, user, key, reason):
             receipt["anulado"] = True
             if adjustment:
                 changes.append(adjustment)
-        _stock_change(sale["productos"], [], user["local"], session)
+        _stock_change(sale["productos"], [], user["local"], session,
+                      user=user, action='ANULACION_VENTA', sale_id=sale['_id'], reason=reason)
         sale.update(anulado=True, anulado_at=datetime.now(timezone.utc), anulado_by=user["_id"], motivoAnulacion=reason)
         stamp(sale, key, digest, user, "ANULAR", reason, changes)
         return _write(sale, session)

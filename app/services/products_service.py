@@ -6,6 +6,8 @@ from io import BytesIO
 
 from app.db.mongo import productsDb
 from ..utils.helpers import product_helper
+from app.services.cash_service import transaction
+from app.services.product_history_service import record_change
 
 
 async def retrieve_products(page: int, xpage: int, local:int):
@@ -25,34 +27,40 @@ async def retrieve_products(page: int, xpage: int, local:int):
         products.append(product_helper(product))
     return {"total": totalProducts, "products": products, "page": page, "xpage": xpage}
 
-async def add_product(product_data: dict) -> dict:
+async def add_product(product_data: dict, user=None) -> dict:
     product_data["_id"] = ObjectId()
-    product =  productsDb.insert_one(product_data)
-    new_product =  productsDb.find_one({"_id": product.inserted_id})
-    
-    return product_helper(new_product)
+    def write(session):
+        product = productsDb.insert_one(product_data, session=session)
+        new_product = productsDb.find_one({"_id": product.inserted_id}, session=session)
+        record_change({}, new_product, 'CREACION', user, session)
+        return product_helper(new_product)
+    return transaction(write)
 
-async def update_product_by_id(producto_id: str, new_data: dict):
+async def update_product_by_id(producto_id: str, new_data: dict, user=None):
     if "_id" in new_data:
         del new_data["_id"]
-    producto = productsDb.find_one({"_id": ObjectId(producto_id)})
-    # print("esta imprimiendo el product")
-    # print(producto)
-    if producto:
+    def write(session):
+        producto = productsDb.find_one({"_id": ObjectId(producto_id)}, session=session)
+        if not producto:
+            return False
         productsDb.update_one(
-            {"_id": ObjectId(producto_id)}, {"$set": new_data}
+            {"_id": ObjectId(producto_id)}, {"$set": new_data}, session=session
         )
+        record_change(producto, {**producto, **new_data}, 'EDICION_MANUAL', user, session)
         return True
-    return False
+    return transaction(write)
 
-async def delete_product_by_id(product_id: str):
+async def delete_product_by_id(product_id: str, user=None):
     filter = {"_id": ObjectId(product_id)}
     
-    result =  productsDb.delete_one(filter)
-    if result.deleted_count == 1:
-        # user_updated =  Items.find_one({"_id": user_id})
-        return True
-    return False
+    def write(session):
+        before = productsDb.find_one(filter, session=session)
+        result = productsDb.delete_one(filter, session=session)
+        if result.deleted_count == 1:
+            record_change(before, {}, 'ELIMINACION', user, session)
+            return True
+        return False
+    return transaction(write)
 
 
 # async def upload_excel(file_data: bytes, local: int):
