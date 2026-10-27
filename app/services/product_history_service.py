@@ -1,10 +1,10 @@
 """Historial inmutable de productos: deltas pequeños, sin caducidad ni snapshots completos."""
+import hmac
 import re
 import threading
 import time
 from datetime import datetime, timezone
 
-import bcrypt
 from fastapi import Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer
 
@@ -56,9 +56,6 @@ def record_change(before, after, action, user, session, *, source_id=None, reaso
 
 
 def _check_pin(pin, user):
-    encoded = settings.PRODUCT_HISTORY_PIN_HASH
-    if not encoded:
-        raise HTTPException(503, 'El PIN del historial todavía no está configurado en el servidor.')
     key, now = str(user['_id']), time.monotonic()
     # Cinco intentos por usuario en cinco minutos, también entre distintos productos.
     # Este límite es por proceso; compartirlo en un almacén común al usar varios workers.
@@ -69,10 +66,7 @@ def _check_pin(pin, user):
         if count >= 5:
             raise HTTPException(429, 'Demasiados intentos. Espera cinco minutos e inténtalo nuevamente.')
         _attempts[key] = (count + 1, until)
-    try:
-        valid = bool(re.fullmatch(r'[0-9]{4}', pin)) and bcrypt.checkpw(pin.encode(), encoded.encode())
-    except (ValueError, TypeError):
-        raise HTTPException(503, 'La configuración del PIN del historial no es válida.')
+    valid = bool(re.fullmatch(r'[0-9]{4}', pin)) and hmac.compare_digest(pin, settings.PRODUCT_HISTORY_PIN)
     if not valid:
         raise HTTPException(403, 'PIN incorrecto. Inténtalo de nuevo.')
     with _attempt_lock:

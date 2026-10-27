@@ -13,7 +13,8 @@ load_dotenv(dotenv_path=env_path)
 class Settings:
     # PROJECT_NAME: str = "Login Api"
     PROJECT_VERSION:str = "1.0"
-    PRODUCT_HISTORY_PIN_HASH = os.getenv('PRODUCT_HISTORY_PIN_HASH')
+    # PIN temporal del historial, definido directamente como en el formulario de productos.
+    PRODUCT_HISTORY_PIN = '1712'
     
     
     DATABASE_URL = os.getenv('DATABASE_URL')

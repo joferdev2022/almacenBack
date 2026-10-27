@@ -6,7 +6,6 @@ from datetime import timedelta
 from unittest.mock import patch
 from uuid import uuid4
 
-import bcrypt
 from bson import ObjectId
 from fastapi import FastAPI, HTTPException
 
@@ -19,7 +18,6 @@ from app.services.auth_service import create_access_token
 from config import settings
 
 TEST_PIN = '2468'
-TEST_HASH = bcrypt.hashpw(TEST_PIN.encode(), bcrypt.gensalt(rounds=4)).decode()
 
 
 class ProductHistoryTests(unittest.IsolatedAsyncioTestCase):
@@ -28,7 +26,7 @@ class ProductHistoryTests(unittest.IsolatedAsyncioTestCase):
         for item in database_patches(self.db):
             item.start()
             self.addCleanup(item.stop)
-        configured = patch.object(settings, 'PRODUCT_HISTORY_PIN_HASH', TEST_HASH)
+        configured = patch.object(settings, 'PRODUCT_HISTORY_PIN', TEST_PIN)
         configured.start()
         self.addCleanup(configured.stop)
         history._attempts.clear()
@@ -184,11 +182,9 @@ class ProductHistoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(status, 200)
         self.assertEqual(response['data']['producto']['nombre'], 'Arroz')
 
-    def test_no_default_pin_and_attempts_are_limited_across_products(self):
-        with patch.object(settings, 'PRODUCT_HISTORY_PIN_HASH', None):
-            with self.assertRaises(HTTPException) as failure:
-                self.result()
-            self.assertEqual(failure.exception.status_code, 503)
+    def test_code_pin_works_without_environment_hash_and_limits_attempts_across_products(self):
+        with patch.dict('os.environ', {'PRODUCT_HISTORY_PIN_HASH': ''}):
+            self.assertEqual(self.result()['producto']['nombre'], 'Arroz')
         for _ in range(5):
             with self.assertRaises(HTTPException) as failure:
                 history.retrieve_history(str(ObjectId()), '0000', self.user)

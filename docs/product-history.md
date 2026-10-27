@@ -19,15 +19,15 @@ controles de versión o un nuevo flujo de ajustes.
 la consulta al local del usuario. Devuelve los tres eventos más recientes y el
 total de registros. No acepta escrituras al historial desde el cliente.
 
-Configurar `PRODUCT_HISTORY_PIN_HASH` en las variables de entorno del servidor
-o ejecutar `venv\Scripts\python.exe tools\configure_product_history_pin.py` para
-generarlo interactivamente en el `.env` ignorado por Git. No existe PIN por defecto.
-Reiniciar el backend después de configurarlo. En despliegue configurar la misma
-variable mediante el gestor de secretos.
+El PIN se define temporalmente directamente en `config.py`, en la variable
+`Settings.PRODUCT_HISTORY_PIN`. Usa el mismo PIN que el formulario actual de
+productos. La verificación se realiza en el backend; no se requiere configurar
+una variable de entorno para esta funcionalidad. Para cambiar el PIN, editar
+esa variable y reiniciar o volver a desplegar el backend.
 
 Se admiten cinco intentos por usuario en cinco minutos por proceso. Si se usan
 varios workers, compartir este límite en un almacén central antes del despliegue.
-Los flujos antiguos de PIN quedan pendientes de migración al servidor.
+Los demás flujos de PIN conservan su implementación actual.
 
 ## Validación local sin datos reales
 
