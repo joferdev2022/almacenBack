@@ -1,10 +1,10 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from bson.objectid import ObjectId
 from fastapi import HTTPException
 import pandas as pd
 from io import BytesIO
 
-from app.db.mongo import productsDb
+from app.db.mongo import productsDb, productImportsDb
 from ..utils.helpers import product_helper
 from app.services.cash_service import transaction
 from app.services.product_history_service import record_change
@@ -63,97 +63,62 @@ async def delete_product_by_id(product_id: str, user=None):
     return transaction(write)
 
 
-# async def upload_excel(file_data: bytes, local: int):
-    
-
-#     df = pd.read_excel(BytesIO(file_data))
-#     records = df.to_dict(orient='records')
-    
-#     for record in records:
-#         record["local"] = local
-#         record["_id"] = ObjectId()
-    
-#     if records:
-#         productsDb.insert_many(records)
-    
-#     return {"inserted_count": len(records)}
+def _prepare_excel(file_data: bytes, local: int):
+    from app.services.product_excel_service import prepare_import
+    if local < 1:
+        raise HTTPException(422, 'Selecciona un local válido.')
+    return prepare_import(file_data, local, list(productsDb.find({'local': local})))
 
 
-async def upload_excel(file_data: bytes, local: int):
-    df = pd.read_excel(BytesIO(file_data))
-    
-    df.columns = [col.strip().upper() for col in df.columns]
-    df = df.where(pd.notna(df), None)
-    
-    records = df.to_dict(orient='records')
-    
-    # Funciones helper para convertir valores de forma segura
-    def safe_float(value):
-        if value is None or pd.isna(value):
-            return 0
-        try:
-            result = float(value)
-            return result if not pd.isna(result) else 0
-        except (ValueError, TypeError):
-            return 0
-    
-    def safe_int(value):
-        if value is None or pd.isna(value):
-            return 0
-        try:
-            result = int(float(value))
-            return result if not pd.isna(result) else 0
-        except (ValueError, TypeError):
-            return 0
-    
-    def safe_string(value):
-        if value is None or pd.isna(value):
-            return ""
-        return str(value).strip()
-    
-    # Mapear todos los registros del Excel al modelo
-    mapped_records = []
-    for record in records:
-        # Limpiar claves del registro
-        record = {k.strip().upper() if isinstance(k, str) else k: v for k, v in record.items()}
+async def preview_excel(file_data: bytes, local: int):
+    from app.services.product_excel_service import public_plan
+    return public_plan(_prepare_excel(file_data, local))
 
-        nombre = str(record.get("PRODUCTO", "")).strip() if record.get("PRODUCTO") else ""
-        presentacion = str(record.get("PRESENTACION", "")).strip() if record.get("PRESENTACION") else ""
-        
-        # Saltar filas vacías
-        if not nombre:
-            continue
-        
-        mapped_records.append({
-            "_id": ObjectId(),
-            "nombre": nombre,
-            "descripcion": safe_string(record.get("DESCRIPCION")),
-            "categoria": safe_string(record.get("CATEGORIA")),
-            "precioCompra": safe_float(record.get("P. UNITARIO")),
-            "precioVenta": safe_float(record.get("P. VENTA")),
-            "cantidadEnStock": safe_int(record.get("CANTIDAD")),
-            "unidadDeMedida": presentacion,
-            "marca": safe_string(record.get("MARCA")),
-            "proveedorId": record.get("PROVEEDORID") if record.get("PROVEEDORID") and not pd.isna(record.get("PROVEEDORID")) else None,
-            "fechaDeCaducidad": record.get("FECHADECADUCIDAD") if record.get("FECHADECADUCIDAD") and not pd.isna(record.get("FECHADECADUCIDAD")) else None,
-            "local": local,
-            "fechaDeCreacion": datetime.now()
+
+async def upload_excel(file_data: bytes, local: int, expected_version: str | None = None,
+                       filename: str | None = None):
+    plan = _prepare_excel(file_data, local)
+    if not plan['valid']:
+        raise HTTPException(422, detail={
+            'message': 'Corrige los errores del Excel. No se modificó ningún producto.',
+            'errors': plan['errors'],
         })
-    
-    # 1. Eliminar todos los productos del local
-    delete_result = productsDb.delete_many({"local": local})
-    deleted_count = delete_result.deleted_count
-    
-    # 2. Insertar todos los productos nuevos de golpe
-    inserted_count = 0
-    if mapped_records:
-        productsDb.insert_many(mapped_records)
-        inserted_count = len(mapped_records)
-    
+    if expected_version is not None and expected_version != plan['catalog_version']:
+        raise HTTPException(409, 'El inventario cambió desde la validación. Valida el archivo nuevamente.')
+
+    # Solo se escribe después de validar todas las filas y coincidencias.
+    # Se conservan los IDs y los productos ausentes permanecen con stock cero.
+    for product_id, values in plan['_updates']:
+        productsDb.update_one({'_id': product_id, 'local': local}, {'$set': values})
+    for values in plan['_new']:
+        productsDb.insert_one({**values, '_id': ObjectId(), 'proveedorId': None,
+                               'fechaDeCaducidad': None, 'fechaDeCreacion': datetime.now()})
+    for product_id in plan['_zero']:
+        productsDb.update_one({'_id': product_id, 'local': local}, {'$set': {'cantidadEnStock': 0}})
+    result = {key: plan[key] for key in ('inserted_count', 'updated_count', 'zeroed_count', 'total_processed')}
+    productImportsDb.insert_one({
+        '_id': ObjectId(), 'local': local,
+        'imported_at': datetime.now(timezone.utc),
+        'filename': (filename or '').replace('\\', '/').rsplit('/', 1)[-1].strip() or 'productos.xlsx',
+        **result,
+    })
+    return result
+
+
+async def latest_product_import(local: int):
+    if local < 1:
+        raise HTTPException(422, 'Selecciona un local válido.')
+    record = productImportsDb.find_one({'local': local}, sort=[('imported_at', -1), ('_id', -1)])
+    if record is None:
+        return None
+    imported_at = record['imported_at']
+    # MongoDB devuelve UTC sin tzinfo cuando el cliente usa su configuración predeterminada.
+    if imported_at.tzinfo is None:
+        imported_at = imported_at.replace(tzinfo=timezone.utc)
     return {
-        "deleted_count": deleted_count,
-        "inserted_count": inserted_count,
-        "total_processed": len(records)
+        'id': str(record['_id']), 'local': record['local'], 'filename': record['filename'],
+        'imported_at': imported_at.astimezone(timezone.utc).isoformat().replace('+00:00', 'Z'),
+        **{key: record[key] for key in ('inserted_count', 'updated_count', 'zeroed_count', 'total_processed')},
     }
 
 
@@ -168,6 +133,7 @@ async def download_excel(local: int):
     
     for prod in productos:
         datos.append({
+            "CODIGO": str(prod["_id"]),
             "CANTIDAD": prod.get("cantidadEnStock", 0),
             "PRODUCTO": prod.get("nombre", ""),
             "PRESENTACION": prod.get("unidadDeMedida", ""),

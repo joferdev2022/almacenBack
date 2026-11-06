@@ -4,7 +4,7 @@ from typing import List
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from app.services.products_service import retrieve_products, add_product, delete_product_by_id, update_product_by_id, upload_excel, download_excel
+from app.services.products_service import retrieve_products, add_product, delete_product_by_id, update_product_by_id, preview_excel, upload_excel, download_excel, latest_product_import
 from app.models.product_model import productModel, ResponseProductModel, ErrorResponseModel
 from app.models.product_model import ProductHistoryRequest
 from app.services.product_history_service import retrieve_history, optional_product_actor
@@ -67,23 +67,21 @@ async def delete_product(id: str, user = Depends(optional_product_actor)):
         "Hubo una falla borrando los datos del cliente",
     )
     
+@router.post("/products/preview-excel", tags=["products"])
+async def preview_products_excel(file: UploadFile = File(...), local: int = Form(...)):
+    return await preview_excel(await file.read(), local)
+
+
 @router.post("/products/upload-excel", tags=["products"])
-async def upload_products_excel(file: UploadFile = File(...), local: int = Form(...)):
-    try:
-        file_data = await file.read()
-        result = await upload_excel(file_data, local)
-        return {
-            "message": "Productos cargados exitosamente",
-            "inserted_count": result["inserted_count"],
-            "deleted_count": result["deleted_count"],
-        }
-    except Exception as e:
-        return ErrorResponseModel(
-            "Error al procesar el archivo",
-            400,
-            str(e)
-        )
-        
+async def upload_products_excel(file: UploadFile = File(...), local: int = Form(...),
+                                catalog_version: str | None = Form(None)):
+    result = await upload_excel(await file.read(), local, catalog_version, filename=file.filename)
+    return {"message": "Inventario actualizado correctamente", **result}
+
+
+@router.get("/products/imports/latest", tags=["products"])
+async def latest_product_import_route(local: int = Query(..., ge=1)):
+    return {"data": await latest_product_import(local)}
 
 @router.get("/products/download-excel", tags=["products"])
 async def download_excel_route(local: int = Query(...)):

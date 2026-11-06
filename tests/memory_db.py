@@ -238,7 +238,8 @@ class MemorySession:
 class MemoryDatabase:
     def __init__(self):
         names = {"authDb": "auth", "sellersDb": "salenMan", "providersDb": "providers", "expensesDb": "expenses",
-                 "salesDb": "sales", "productsDb": "products", "productHistoryDb": "product_history", "cashRegistersDb": "cash_registers",
+                 "salesDb": "sales", "productsDb": "products", "productImportsDb": "importaciones_productos",
+                 "productHistoryDb": "product_history", "cashRegistersDb": "cash_registers",
                  "cashJournalsDb": "cash_journals", "cashMovementsDb": "cash_movements",
                  "auth_liquorDb": "auth_liquor", "products_liquorDb": "products_liquor",
                  "sales_liquorDb": "sales_liquor", "providers_liquorDb": "providers_liquor",
