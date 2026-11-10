@@ -9,10 +9,23 @@ from app.models.product_model import productModel, ResponseProductModel, ErrorRe
 from app.models.product_model import ProductHistoryRequest
 from app.services.product_history_service import retrieve_history, optional_product_actor
 from app.services.expenses_service import get_expense_user
+from app.models.product_dosage_model import ProductDosageUpdate
+from app.services.product_dosage_service import retrieve_dosages, save_dosages
 
 
 
 router = APIRouter()
+
+
+@router.get('/products/{id}/dosages', tags=['products'])
+async def product_dosages(id: str, user: dict = Depends(get_expense_user)):
+    return {'data': retrieve_dosages(id, user)}
+
+
+@router.put('/products/{id}/dosages', tags=['products'])
+async def update_product_dosages(id: str, data: ProductDosageUpdate,
+                                  user: dict = Depends(get_expense_user)):
+    return {'data': save_dosages(id, data, user)}
 
 
 @router.post('/products/{id}/history', tags=['products'])
